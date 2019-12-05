@@ -58,7 +58,7 @@ class Retina:
         self.feature_vector_size = self.N_theta * self.N_azimuth * self.N_eccentricity * self.N_phase
 
         # !!?? Magic numbers !!??
-        self.rho = 1.21 # 1.41
+        self.rho = 1.08 # 1.41
         self.ecc_max = .8  # self.args.ecc_max
         self.sf_0_r = 0.03  # self.args.sf_0_r
         self.sf_0_max = 0.45
@@ -124,10 +124,8 @@ class Retina:
         return lg.normalize(lg.invert(lg.loggabor(dimension_filtre // 2, dimension_filtre // 2, **params) * np.exp(-1j * phase))).ravel()
 
     def transform(self, pixel_fullfield):
-        fullfield_dot_retina_dico = np.zeros(self.N_theta * self.N_azimuth * self.N_eccentricity * self.N_phase)
-
+        log_polar_features = np.zeros(self.N_theta * self.N_azimuth * self.N_eccentricity * self.N_phase)
         N_X, N_Y = self.N_X, self.N_Y
-
         indice = 0
         for i_theta in range(self.N_theta):
             for i_phase in range(self.N_phase):
@@ -137,9 +135,7 @@ class Retina:
                     fenetre_filtre = fenetre_filtre.reshape((dimension_filtre, dimension_filtre))
                     for i_azimuth in range(self.N_azimuth):
 
-                        # ecc = ecc_max * (1 / self.args.rho) ** (self.args.N_eccentricity - i_eccentricity)
-                        ecc = self.ecc_max * (1 / self.rho) ** ((self.args.N_eccentricity - i_eccentricity) / 3)
-                        # /3 ajoute sinon on obtient les memes coordonnees x et y pour environ la moitie des filtres crees 12/07
+                        ecc = self.ecc_max * (1 / self.rho) ** ((self.N_eccentricity - i_eccentricity) )
 
                         N_min = min(N_X, N_Y)
                         r = np.sqrt(N_min ** 2 + N_min ** 2) / 2 * ecc #- 30  # radius
@@ -174,8 +170,46 @@ class Retina:
                         print('image', fenetre_image.shape, 'filter', fenetre_filtre_crop.shape)
 
                         a = np.dot(np.ravel(fenetre_filtre_crop), np.ravel(fenetre_image))
-                        fullfield_dot_retina_dico[indice] = a
+                        log_polar_features[indice] = a
 
                         indice += 1
 
-        return pixel_fullfield, fullfield_dot_retina_dico
+        return log_polar_features
+
+    def inverse_transform(self, log_polar_features):
+        N_X, N_Y = self.N_X, self.N_Y
+        rebuild_pixel_fullfield = np.zeros((N_X, N_Y))
+        indice = 0
+        for i_theta in range(self.N_theta):
+            for i_phase in range(self.N_phase):
+                for i_eccentricity in range(self.N_eccentricity):
+                    fenetre_filtre = self.retina_dico[i_theta][i_phase][i_eccentricity]
+                    dimension_filtre = int(fenetre_filtre.shape[0] ** (1 / 2))
+                    fenetre_filtre = fenetre_filtre.reshape((dimension_filtre, dimension_filtre))
+                    for i_azimuth in range(self.N_azimuth):
+                        ecc = self.ecc_max * (1 / self.rho) ** ((self.N_eccentricity - i_eccentricity))
+
+                        N_min = min(N_X, N_Y)
+                        r = np.sqrt(N_min ** 2 + N_min ** 2) / 2 * ecc  # - 30  # radius
+                        # r = np.sqrt(N_X ** 2 + N_Y ** 2) / 2 * ecc - 30 # radius
+                        psi = (i_azimuth + (i_eccentricity % 2) * .5) * np.pi * 2 / self.args.N_azimuth
+                        x = int(N_X / 2 + r * np.cos(psi))
+                        y = int(N_Y / 2 + r * np.sin(psi))
+
+                        half_width = dimension_filtre // 2
+                        x_min = max(int(x - half_width), 0)
+                        x_crop_left = max(0, x_min - int(x - half_width))
+                        x_max = min(int(x + half_width), N_X)
+                        x_crop_right = max(0, int(x + half_width) - x_max)
+                        y_min = max(int(y - half_width), 0)
+                        y_crop_left = max(0, y_min - int(y - half_width))
+                        y_max = min(int(y + half_width), N_Y)
+                        y_crop_right = max(0, int(y + half_width) - y_max)
+
+                        fenetre_filtre_crop = fenetre_filtre[x_crop_left:dimension_filtre - x_crop_right,
+                                              y_crop_left:dimension_filtre - y_crop_right]
+
+                        rebuild_pixel_fullfield[x_min:x_max, y_min:y_max] += log_polar_features[indice] * fenetre_filtre_crop
+                        indice += 1
+
+        return rebuild_pixel_fullfield
