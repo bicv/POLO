@@ -58,7 +58,7 @@ class Retina:
         self.feature_vector_size = self.N_theta * self.N_azimuth * self.N_eccentricity * self.N_phase
 
         # !!?? Magic numbers !!??
-        self.rho = 1.08 # 1.41
+        self.rho = 1.05 # 1.41
         self.ecc_max = .8  # self.args.ecc_max
         self.sf_0_r = 0.03  # self.args.sf_0_r
         self.sf_0_max = 0.45
@@ -76,7 +76,7 @@ class Retina:
     def get_suffix(self):
         suffix = '_{}_{}'.format(self.N_theta, self.N_azimuth)
         suffix += '_{}_{}'.format(self.N_eccentricity, self.N_phase)
-        suffix += '_{}_{}'.format(self.args.rho, self.N_pic)
+        suffix += '_{}_{}'.format(self.rho, self.N_pic)
         return suffix
 
     def init_retina_transform(self):  # ***
@@ -140,7 +140,7 @@ class Retina:
                         N_min = min(N_X, N_Y)
                         r = np.sqrt(N_min ** 2 + N_min ** 2) / 2 * ecc #- 30  # radius
                         # r = np.sqrt(N_X ** 2 + N_Y ** 2) / 2 * ecc - 30 # radius
-                        psi = (i_azimuth + (i_eccentricity % 2) * .5) * np.pi * 2 / self.args.N_azimuth
+                        psi = (i_azimuth + (i_eccentricity % 2) * .5) * np.pi * 2 / self.N_azimuth
                         x = int(N_X / 2 + r * np.cos(psi))
                         y = int(N_Y / 2 + r * np.sin(psi))
 
@@ -192,7 +192,7 @@ class Retina:
                         N_min = min(N_X, N_Y)
                         r = np.sqrt(N_min ** 2 + N_min ** 2) / 2 * ecc  # - 30  # radius
                         # r = np.sqrt(N_X ** 2 + N_Y ** 2) / 2 * ecc - 30 # radius
-                        psi = (i_azimuth + (i_eccentricity % 2) * .5) * np.pi * 2 / self.args.N_azimuth
+                        psi = (i_azimuth + (i_eccentricity % 2) * .5) * np.pi * 2 / self.N_azimuth
                         x = int(N_X / 2 + r * np.cos(psi))
                         y = int(N_Y / 2 + r * np.sin(psi))
 
