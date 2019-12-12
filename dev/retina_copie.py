@@ -50,6 +50,7 @@ class Retina:
 
         self.N_X = args.N_X
         self.N_Y = args.N_Y
+        self.N_pic = min(args.N_X,  args.N_Y)
 
         self.N_theta = args.N_theta
         self.N_azimuth = args.N_azimuth
@@ -58,8 +59,14 @@ class Retina:
         self.feature_vector_size = self.N_theta * self.N_azimuth * self.N_eccentricity * self.N_phase
 
         # !!?? Magic numbers !!??
-        self.rho = 1.05 # 1.41
-        self.ecc_max = .8  # self.args.ecc_max
+        #self.rho = 1.05 # 1.41
+        self.max_ratio = 30
+        self.ecc_min = 0.02
+        self.ecc_max = .80  # self.args.ecc_max
+
+        self.r_min = self.ecc_min * self.N_pic/2
+        self.r_max = self.ecc_max * self.N_pic/2
+
         self.sf_0_r = 0.03  # self.args.sf_0_r
         self.sf_0_max = 0.45
         self.B_theta = np.pi / self.N_theta / 2  # self.args.B_theta
@@ -105,7 +112,14 @@ class Retina:
 
     def local_filter(self, i_theta, i_phase, i_eccentricity, lg):
 
-        ecc = self.ecc_max * (1 / self.rho) ** (self.N_eccentricity - i_eccentricity)
+        #ecc = self.ecc_max * (1 / self.rho) ** (self.N_eccentricity - i_eccentricity)
+        r = self.r_min + i_eccentricity * (self.r_max-self.r_min)/(self.N_eccentricity - 1)
+        b = np.log(self.max_ratio)/(self.r_max-self.r_min)
+        a = (self.r_max - self.r_min)/ (np.exp(b * (self.r_max-self.r_min))-1)
+        c = self.r_min - a
+        r_prim = a * np.exp(b * (r - self.r_min)) + c
+        ecc = r_prim * 2 / self.N_pic
+
         theta_ref = i_theta * np.pi / self.N_theta
         sf_0 = 0.5 * self.sf_0_r / ecc
         sf_0 = np.min((sf_0, self.sf_0_max))
@@ -134,15 +148,18 @@ class Retina:
                     dimension_filtre = int(fenetre_filtre.shape[0] ** (1 / 2))
                     fenetre_filtre = fenetre_filtre.reshape((dimension_filtre, dimension_filtre))
                     for i_azimuth in range(self.N_azimuth):
+                        # ecc = self.ecc_max * (1 / self.rho) ** (self.N_eccentricity - i_eccentricity)
+                        r = self.r_min + i_eccentricity * (self.r_max - self.r_min) / (self.N_eccentricity - 1)
+                        b = np.log(self.max_ratio) / (self.r_max - self.r_min)
+                        a = (self.r_max - self.r_min) / (np.exp(b * (self.r_max - self.r_min)) - 1)
+                        c = self.r_min - a
+                        r_prim = a * np.exp(b * (r - self.r_min)) + c
+                        #ecc = r_prim * 2 / self.N_pic
 
-                        ecc = self.ecc_max * (1 / self.rho) ** ((self.N_eccentricity - i_eccentricity) )
-
-                        N_min = min(N_X, N_Y)
-                        r = np.sqrt(N_min ** 2 + N_min ** 2) / 2 * ecc #- 30  # radius
                         # r = np.sqrt(N_X ** 2 + N_Y ** 2) / 2 * ecc - 30 # radius
                         psi = (i_azimuth + (i_eccentricity % 2) * .5) * np.pi * 2 / self.N_azimuth
-                        x = int(N_X / 2 + r * np.cos(psi))
-                        y = int(N_Y / 2 + r * np.sin(psi))
+                        x = int(N_X / 2 + r_prim * np.cos(psi))
+                        y = int(N_Y / 2 + r_prim * np.sin(psi))
 
                         half_width = dimension_filtre // 2
                         x_min = max(int(x - half_width), 0)
@@ -167,7 +184,7 @@ class Retina:
                         # print('y_crop_left', y_crop_left)
                         # print('y_max', y_max)
                         # print('y_crop_right', y_crop_right)
-                        print('image', fenetre_image.shape, 'filter', fenetre_filtre_crop.shape)
+                        #print('image', fenetre_image.shape, 'filter', fenetre_filtre_crop.shape)
 
                         a = np.dot(np.ravel(fenetre_filtre_crop), np.ravel(fenetre_image))
                         log_polar_features[indice] = a
@@ -187,14 +204,16 @@ class Retina:
                     dimension_filtre = int(fenetre_filtre.shape[0] ** (1 / 2))
                     fenetre_filtre = fenetre_filtre.reshape((dimension_filtre, dimension_filtre))
                     for i_azimuth in range(self.N_azimuth):
-                        ecc = self.ecc_max * (1 / self.rho) ** ((self.N_eccentricity - i_eccentricity))
+                        r = self.r_min + i_eccentricity * (self.r_max - self.r_min) / (self.N_eccentricity - 1)
+                        b = np.log(self.max_ratio) / (self.r_max - self.r_min)
+                        a = (self.r_max - self.r_min) / (np.exp(b * (self.r_max - self.r_min)) - 1)
+                        c = self.r_min - a
+                        r_prim = a * np.exp(b * (r - self.r_min)) + c
 
-                        N_min = min(N_X, N_Y)
-                        r = np.sqrt(N_min ** 2 + N_min ** 2) / 2 * ecc  # - 30  # radius
                         # r = np.sqrt(N_X ** 2 + N_Y ** 2) / 2 * ecc - 30 # radius
                         psi = (i_azimuth + (i_eccentricity % 2) * .5) * np.pi * 2 / self.N_azimuth
-                        x = int(N_X / 2 + r * np.cos(psi))
-                        y = int(N_Y / 2 + r * np.sin(psi))
+                        x = int(N_X / 2 + r_prim * np.cos(psi))
+                        y = int(N_Y / 2 + r_prim * np.sin(psi))
 
                         half_width = dimension_filtre // 2
                         x_min = max(int(x - half_width), 0)
