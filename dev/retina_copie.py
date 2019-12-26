@@ -60,9 +60,9 @@ class Retina:
 
         # !!?? Magic numbers !!??
         #self.rho = 1.05 # 1.41
-        self.max_ratio = 30
-        self.ecc_min = 0.02
-        self.ecc_max = .80  # self.args.ecc_max
+        self.max_ratio = 10 #10
+        self.ecc_min = 0.03
+        self.ecc_max = 1  # self.args.ecc_max
 
         self.r_min = self.ecc_min * self.N_pic/2
         self.r_max = self.ecc_max * self.N_pic/2
@@ -100,30 +100,46 @@ class Retina:
                   'cache_dir/edges', 'datapath': 'database/', 'ext': '.pdf', 'figsize':
                   14.0, 'formats': ['pdf', 'png', 'jpg'], 'dpi': 450, 'verbose': 0}
         lg = LogGabor(pe=pe)
-        for i_theta in range(self.N_theta):
-            self.retina_dico[i_theta] = {}
-            for i_phase in range(self.N_phase):
-                self.retina_dico[i_theta][i_phase] = {}
-                for i_eccentricity in range(self.N_eccentricity):
-                    self.retina_dico[i_theta][i_phase][i_eccentricity] = self.local_filter(i_theta, i_phase, i_eccentricity, lg)
+        for i_eccentricity in range(self.N_eccentricity):
+            self.retina_dico[i_eccentricity] = {}
+            for i_theta in range(self.N_theta):
+                self.retina_dico[i_eccentricity][i_theta] = {}            
+                for i_phase in range(self.N_phase):                       
+                    self.retina_dico[i_eccentricity][i_theta][i_phase] = self.local_filter(i_eccentricity, i_theta, i_phase,  lg)
         if self.args.verbose: print("Dico cree")
         if self.args.verbose: print("len finale", len(self.retina_dico), len(self.retina_dico[0]),
                                     len(self.retina_dico[0][0]), len(self.retina_dico[0][0][0]))
 
-    def local_filter(self, i_theta, i_phase, i_eccentricity, lg):
-
-        #ecc = self.ecc_max * (1 / self.rho) ** (self.N_eccentricity - i_eccentricity)
-        r = self.r_min + i_eccentricity * (self.r_max-self.r_min)/(self.N_eccentricity - 1)
+    
+    def retina_warp(self, r):
         b = np.log(self.max_ratio)/(self.r_max-self.r_min)
         a = (self.r_max - self.r_min)/ (np.exp(b * (self.r_max-self.r_min))-1)
         c = self.r_min - a
         r_prim = a * np.exp(b * (r - self.r_min)) + c
-        ecc = r_prim * 2 / self.N_pic
+        return r_prim
+    
+    def d_retina_warp(self, r):
+        b = np.log(self.max_ratio)/(self.r_max-self.r_min)
+        a = (self.r_max - self.r_min)/ (np.exp(b * (self.r_max-self.r_min))-1)
+        d_r_prim = a * b * np.exp(b * (r - self.r_min))
+        return d_r_prim
+        
+    def local_filter(self, i_eccentricity, i_theta, i_phase, lg):
+
+        #ecc = self.ecc_max * (1 / self.rho) ** (self.N_eccentricity - i_eccentricity)
+        r = self.r_min + i_eccentricity * (self.r_max-self.r_min)/(self.N_eccentricity - 1)
+        r_prim = self.retina_warp(r)
+        ecc = r_prim * 2 / self.N_pic  # [0,1] interval
 
         theta_ref = i_theta * np.pi / self.N_theta
-        sf_0 = 0.5 * self.sf_0_r / ecc
-        sf_0 = np.min((sf_0, self.sf_0_max))
+        #sf_0 = 0.5 * self.sf_0_r / ecc #self.d_retina_warp(r) #
+        #sf_0 = np.min((sf_0, self.sf_0_max))
 
+        p_ref = self.N_pic/self.N_eccentricity/2
+        p_loc = p_ref * self.d_retina_warp(r) 
+        sf_0 = 1/p_loc
+        sf_0 = np.min((sf_0, self.sf_0_max))
+        #dimension_filtre =  dim_ref * self.d_retina_warp(r) #
         dimension_filtre = int(1 / sf_0 * 2)
         if dimension_filtre % 2 == 1:
             dimension_filtre += 1
@@ -138,25 +154,21 @@ class Retina:
         return lg.normalize(lg.invert(lg.loggabor(dimension_filtre // 2, dimension_filtre // 2, **params) * np.exp(-1j * phase))).ravel()
 
     def transform(self, pixel_fullfield):
-        log_polar_features = np.zeros(self.N_theta * self.N_azimuth * self.N_eccentricity * self.N_phase)
+        log_polar_features = {}
         N_X, N_Y = self.N_X, self.N_Y
-        indice = 0
-        for i_theta in range(self.N_theta):
-            for i_phase in range(self.N_phase):
-                for i_eccentricity in range(self.N_eccentricity):
-                    fenetre_filtre = self.retina_dico[i_theta][i_phase][i_eccentricity]
+        for i_eccentricity in range(self.N_eccentricity):
+            log_polar_features[i_eccentricity] = {}
+            for i_theta in range(self.N_theta):
+                log_polar_features[i_eccentricity][i_theta] = {}
+                for i_phase in range(self.N_phase):
+                    log_polar_features[i_eccentricity][i_theta][i_phase] = {}
+                    fenetre_filtre = self.retina_dico[i_eccentricity][i_theta][i_phase]
                     dimension_filtre = int(fenetre_filtre.shape[0] ** (1 / 2))
                     fenetre_filtre = fenetre_filtre.reshape((dimension_filtre, dimension_filtre))
+                    r = self.r_min + i_eccentricity * (self.r_max - self.r_min) / (self.N_eccentricity - 1)
+                    r_prim = self.retina_warp(r)
                     for i_azimuth in range(self.N_azimuth):
-                        # ecc = self.ecc_max * (1 / self.rho) ** (self.N_eccentricity - i_eccentricity)
-                        r = self.r_min + i_eccentricity * (self.r_max - self.r_min) / (self.N_eccentricity - 1)
-                        b = np.log(self.max_ratio) / (self.r_max - self.r_min)
-                        a = (self.r_max - self.r_min) / (np.exp(b * (self.r_max - self.r_min)) - 1)
-                        c = self.r_min - a
-                        r_prim = a * np.exp(b * (r - self.r_min)) + c
-                        #ecc = r_prim * 2 / self.N_pic
-
-                        # r = np.sqrt(N_X ** 2 + N_Y ** 2) / 2 * ecc - 30 # radius
+                        
                         psi = (i_azimuth + (i_eccentricity % 2) * .5) * np.pi * 2 / self.N_azimuth
                         x = int(N_X / 2 + r_prim * np.cos(psi))
                         y = int(N_Y / 2 + r_prim * np.sin(psi))
@@ -175,40 +187,26 @@ class Retina:
                         fenetre_image = pixel_fullfield[x_min:x_max, y_min:y_max]
                         fenetre_filtre_crop = fenetre_filtre[x_crop_left:dimension_filtre-x_crop_right,
                                                              y_crop_left:dimension_filtre-y_crop_right]
-
-                        # print('x_min', x_min)
-                        # print('x_crop_left', x_crop_left)
-                        # print('x_max', x_max)
-                        # print('x_crop_right', x_crop_right)
-                        # print('y_min', y_min)
-                        # print('y_crop_left', y_crop_left)
-                        # print('y_max', y_max)
-                        # print('y_crop_right', y_crop_right)
-                        #print('image', fenetre_image.shape, 'filter', fenetre_filtre_crop.shape)
-
+                        
                         a = np.dot(np.ravel(fenetre_filtre_crop), np.ravel(fenetre_image))
-                        log_polar_features[indice] = a
+                        log_polar_features[i_eccentricity][i_theta][i_phase][i_azimuth] = a
 
-                        indice += 1
 
         return log_polar_features
 
     def inverse_transform(self, log_polar_features):
         N_X, N_Y = self.N_X, self.N_Y
         rebuild_pixel_fullfield = np.zeros((N_X, N_Y))
-        indice = 0
-        for i_theta in range(self.N_theta):
-            for i_phase in range(self.N_phase):
-                for i_eccentricity in range(self.N_eccentricity):
-                    fenetre_filtre = self.retina_dico[i_theta][i_phase][i_eccentricity]
+        for i_eccentricity in range(self.N_eccentricity):
+            for i_theta in range(self.N_theta):
+                for i_phase in range(self.N_phase):               
+                    fenetre_filtre = self.retina_dico[i_eccentricity][i_theta][i_phase]
                     dimension_filtre = int(fenetre_filtre.shape[0] ** (1 / 2))
                     fenetre_filtre = fenetre_filtre.reshape((dimension_filtre, dimension_filtre))
+                    r = self.r_min + i_eccentricity * (self.r_max - self.r_min) / (self.N_eccentricity - 1)
+                    r_prim = self.retina_warp(r)
                     for i_azimuth in range(self.N_azimuth):
-                        r = self.r_min + i_eccentricity * (self.r_max - self.r_min) / (self.N_eccentricity - 1)
-                        b = np.log(self.max_ratio) / (self.r_max - self.r_min)
-                        a = (self.r_max - self.r_min) / (np.exp(b * (self.r_max - self.r_min)) - 1)
-                        c = self.r_min - a
-                        r_prim = a * np.exp(b * (r - self.r_min)) + c
+                        
 
                         # r = np.sqrt(N_X ** 2 + N_Y ** 2) / 2 * ecc - 30 # radius
                         psi = (i_azimuth + (i_eccentricity % 2) * .5) * np.pi * 2 / self.N_azimuth
@@ -228,7 +226,6 @@ class Retina:
                         fenetre_filtre_crop = fenetre_filtre[x_crop_left:dimension_filtre - x_crop_right,
                                               y_crop_left:dimension_filtre - y_crop_right]
 
-                        rebuild_pixel_fullfield[x_min:x_max, y_min:y_max] += log_polar_features[indice] * fenetre_filtre_crop
-                        indice += 1
+                        rebuild_pixel_fullfield[x_min:x_max, y_min:y_max] += log_polar_features[i_eccentricity][i_theta][i_phase][i_azimuth]  * fenetre_filtre_crop
 
         return rebuild_pixel_fullfield
