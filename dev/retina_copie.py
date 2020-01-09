@@ -118,8 +118,9 @@ class Retina:
         a = (self.r_max - self.r_min)/ (np.exp(b * (self.r_max-self.r_min))-1)
         c = self.r_min - a
         r_prim = a * np.exp(b * (r - self.r_min)) + c
-        ecc = r_prim * 2 / self.N_pic
 
+
+        ecc = r_prim * 2 / self.N_pic
         theta_ref = i_theta * np.pi / self.N_theta
         sf_0 = 0.5 * self.sf_0_r / ecc
         sf_0 = np.min((sf_0, self.sf_0_max))
