@@ -160,14 +160,14 @@ class Retina:
             lg.loggabor(dimension_filtre // 2, dimension_filtre // 2, **params) * np.exp(-1j * phase))).ravel()
 
     def transform(self, pixel_fullfield):
-        log_polar_features = {}
+        log_polar_features = np.zeros(self.N_eccentricity, self.N_theta, self.N_phase, self.N_azimuth)
         N_X, N_Y = self.N_X, self.N_Y
         for i_eccentricity in range(self.N_eccentricity):
-            log_polar_features[i_eccentricity] = {}
+            #log_polar_features[i_eccentricity] = {}
             for i_theta in range(self.N_theta):
-                log_polar_features[i_eccentricity][i_theta] = {}
+                #log_polar_features[i_eccentricity][i_theta] = {}
                 for i_phase in range(self.N_phase):
-                    log_polar_features[i_eccentricity][i_theta][i_phase] = {}
+                    #log_polar_features[i_eccentricity][i_theta][i_phase] = {}
                     fenetre_filtre = self.retina_dico[i_eccentricity][i_theta][i_phase]
                     dimension_filtre = int(fenetre_filtre.shape[0] ** (1 / 2))
                     fenetre_filtre = fenetre_filtre.reshape((dimension_filtre, dimension_filtre))
