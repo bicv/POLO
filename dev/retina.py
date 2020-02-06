@@ -156,11 +156,18 @@ class Retina:
                   'theta': theta_ref,
                   'B_theta': self.B_theta}
         phase = i_phase * np.pi / 2
-        return lg.normalize(lg.invert(
-            lg.loggabor(dimension_filtre // 2, dimension_filtre // 2, **params) * np.exp(-1j * phase))).ravel()
+        return lg.normalize(
+                   lg.invert(
+                       lg.loggabor(dimension_filtre // 2,
+                                   dimension_filtre // 2, 
+                                   **params
+                                  ) 
+                                  * np.exp(-1j * phase)
+                            )
+                        ).ravel()
 
     def transform(self, pixel_fullfield):
-        log_polar_features = np.zeros(self.N_eccentricity, self.N_theta, self.N_phase, self.N_azimuth)
+        log_polar_features = np.zeros((self.N_eccentricity, self.N_theta, self.N_phase, self.N_azimuth))
         N_X, N_Y = self.N_X, self.N_Y
         for i_eccentricity in range(self.N_eccentricity):
             #log_polar_features[i_eccentricity] = {}
