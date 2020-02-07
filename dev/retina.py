@@ -165,13 +165,28 @@ class Retina:
                                   * np.exp(-1j * phase)
                             )
                         ).ravel()
+    
+    def get_image_window(self, x, y, dimension_filtre):
+        half_width = dimension_filtre // 2
+        x_min = min(max(int(x - half_width), 0), self.N_X)
+        x_max = max(min(int(x + half_width), self.N_X), 0)
+        y_min = min(max(int(y - half_width), 0), self.N_Y)
+        y_max = max(min(int(y + half_width), self.N_Y), 0)
+        return x_min, x_max, y_min, y_max
+    
+    def get_filter_window(self, x, y, x_min, x_max, y_min, y_max, dimension_filtre):
+        half_width = dimension_filtre // 2
+        x_f_min = min(max(0, x_min - int(x - half_width)), dimension_filtre)
+        x_f_max = dimension_filtre - min(max(0, int(x + half_width) - x_max), dimension_filtre)
+        y_f_min = min(max(0, y_min - int(y - half_width)), dimension_filtre)
+        y_f_max = dimension_filtre -  min(max(0, int(y + half_width) - y_max), dimension_filtre)
+        return x_f_min, x_f_max, y_f_min, y_f_max
 
     def transform(self, pixel_fullfield, loc=None):
         log_polar_features = np.zeros((self.N_eccentricity, self.N_theta, self.N_phase, self.N_azimuth))   
-        N_X, N_Y = self.N_X, self.N_Y
         if loc is None:
-            X = N_X / 2
-            Y = N_Y / 2
+            X = self.N_X / 2
+            Y = self.N_Y / 2
         else:
             X = loc[0]
             Y = loc[1]    
@@ -190,21 +205,12 @@ class Retina:
                         psi = (i_azimuth + (i_eccentricity % 2) * .5) * np.pi * 2 / self.N_azimuth
                         x = int(X + r_prim * np.cos(psi))
                         y = int(Y + r_prim * np.sin(psi))
-                        half_width = dimension_filtre // 2
-                        x_min = min(max(int(x - half_width), 0), N_X)
-                        x_crop_left = min(max(0, x_min - int(x - half_width)), dimension_filtre)
-                        x_max = max(min(int(x + half_width), N_X), 0)
-                        x_crop_right = min(max(0, int(x + half_width) - x_max), dimension_filtre)
-                        y_min = min(max(int(y - half_width), 0), N_Y)
-                        y_crop_left = min(max(0, y_min - int(y - half_width)), dimension_filtre)
-                        y_max = max(min(int(y + half_width), N_Y), 0)
-                        y_crop_right = min(max(0, int(y + half_width) - y_max), dimension_filtre)
-                        #print(x_min, x_max, y_min, y_max)
-                        #print(x_crop_left, x_crop_right, y_crop_left, y_crop_right)
 
-                        fenetre_image = pixel_fullfield[x_min:x_max, y_min:y_max]
-                        fenetre_filtre_crop = fenetre_filtre[x_crop_left:dimension_filtre - x_crop_right,
-                                              y_crop_left:dimension_filtre - y_crop_right]
+                        x_min, x_max, y_min, y_max = self.get_image_window(x, y, dimension_filtre)
+                        fenetre_image = pixel_fullfield[x_min:x_max, y_min:y_max]                         
+                        x_f_min, x_f_max, y_f_min, y_f_max = self.get_filter_window(x, y, x_min, x_max, 
+                                                                                    y_min, y_max, dimension_filtre)
+                        fenetre_filtre_crop = fenetre_filtre[x_f_min:x_f_max, y_f_min:y_f_max]
 
                         a = np.dot(np.ravel(fenetre_filtre_crop), np.ravel(fenetre_image))
                         log_polar_features[i_eccentricity][i_theta][i_phase][i_azimuth] = a
@@ -227,21 +233,13 @@ class Retina:
                         psi = (i_azimuth + (i_eccentricity % 2) * .5) * np.pi * 2 / self.N_azimuth
                         x = int(N_X / 2 + r_prim * np.cos(psi))
                         y = int(N_Y / 2 + r_prim * np.sin(psi))
-
-                        half_width = dimension_filtre // 2
-                        x_min = max(int(x - half_width), 0)
-                        x_crop_left = max(0, x_min - int(x - half_width))
-                        x_max = min(int(x + half_width), N_X)
-                        x_crop_right = max(0, int(x + half_width) - x_max)
-                        y_min = max(int(y - half_width), 0)
-                        y_crop_left = max(0, y_min - int(y - half_width))
-                        y_max = min(int(y + half_width), N_Y)
-                        y_crop_right = max(0, int(y + half_width) - y_max)
-
-                        fenetre_filtre_crop = fenetre_filtre[x_crop_left:dimension_filtre - x_crop_right,
-                                              y_crop_left:dimension_filtre - y_crop_right]
+                        
+                        x_min, x_max, y_min, y_max = self.get_image_window(x, y, dimension_filtre)
+                        x_f_min, x_f_max, y_f_min, y_f_max = self.get_filter_window(x, y, x_min, x_max, 
+                                                                                    y_min, y_max, dimension_filtre)
+                        fenetre_filtre_crop = fenetre_filtre[x_f_min:x_f_max, y_f_min:y_f_max]
 
                         rebuild_pixel_fullfield[x_min:x_max, y_min:y_max] += \
-                        log_polar_features[i_eccentricity][i_theta][i_phase][i_azimuth] * fenetre_filtre_crop
+                            log_polar_features[i_eccentricity][i_theta][i_phase][i_azimuth] * fenetre_filtre_crop
 
         return rebuild_pixel_fullfield
