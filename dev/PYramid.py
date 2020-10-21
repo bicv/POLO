@@ -38,19 +38,19 @@ im=Image_SLIP({'N_X': N_X, 'N_Y': N_Y, 'do_mask': True})
 
 
 def cropped_pyramid(img_tens, width=width, base_levels=base_levels, color=True, do_mask=True, verbose=False):
-
+    
     N_batch, _, N_X, N_Y = img_tens.shape # tensor of the images  (dimension 4)
     n_levels = int(np.log(np.max((N_X, N_Y))/width)/np.log(base_levels)) + 1 #computing the number of iterations cf:downsampling
-
+    
     if color :
         img_crop = torch.zeros((N_batch, n_levels, 3, width, width))
         level_size=[[N_X, N_Y]]
 
     else :
         img_crop = torch.zeros((N_batch, n_levels, width, width)) #creating the tensor to store the cropped images while pyramiding
-
+        
     img_down = img_tens.clone()
-    for i_level in range(n_levels-1): #each iteration -> residual_image = image - downsampled_cloned_image_reshaped_to_the_right_size
+    for i_level in range(n_levels-1): #each iteration -> residual_image = image - downsampled_cloned_image_reshaped_to_the_right_size 
         img_residual = img_down.clone()
         img_down = interpolate(img_down, scale_factor=1/base_levels, mode=mode) #downsampling
         img_residual -= interpolate(img_down, size=img_residual.shape[-2:], mode=mode)  #upsizing in order to substract
@@ -59,39 +59,41 @@ def cropped_pyramid(img_tens, width=width, base_levels=base_levels, color=True, 
         h_res, w_res = img_residual.shape[-2:] #at each iteration the residual image size is reduced of a factor 1/base_levels (img_down the image downsampled at the previous iteration)
 
         if color :
-            img_crop[:, i_level, :, :, :] = img_residual[:, :,
-                            (h_res//2-width//2):(h_res//2+width//2),
+            img_crop[:, i_level, :, :, :] = img_residual[:, :, 
+                            (h_res//2-width//2):(h_res//2+width//2), 
                             (w_res//2-width//2):(w_res//2+width//2)]
             level_size.append(list(img_down.shape[-2:]))
-
+            
         else :
-            img_crop[:, i_level, :, :] = img_residual[:, 0,
-                            (h_res//2-width//2):(h_res//2+width//2),
+            img_crop[:, i_level, :, :] = img_residual[:, 0, 
+                            (h_res//2-width//2):(h_res//2+width//2), 
                             (w_res//2-width//2):(w_res//2+width//2)] #the central crop of residual image stored in tensor img_crop
             level_size=0
-
+            
     h_res, w_res = img_down.shape[-2:]
-
+    
     if color :
-        img_crop[:, n_levels-1, :,
-                 (width//2-h_res//2):(width//2+h_res//2),
+        img_crop[:, n_levels-1, :, 
+                 (width//2-h_res//2):(width//2+h_res//2), 
                  (width//2-w_res//2):(width//2+w_res//2)] = img_down #[0, :, :, :]
-
+        
     else :
-        img_crop[:, n_levels-1,
-             (width//2-h_res//2):(width//2+h_res//2),
+        img_crop[:, n_levels-1, 
+             (width//2-h_res//2):(width//2+h_res//2), 
              (width//2-w_res//2):(width//2+w_res//2)] = img_down[:, 0, :, :]
     if verbose: print('Top tensor shape=', img_down.shape, ', Final n_levels=', n_levels) #print image's dimensions after downsampling, condition max(img_down.shape[-2:])<=width satisfied
-
+    
     if do_mask :
         mask_crop = Image_SLIP({'N_X': width, 'N_Y': width, 'do_mask': True}).mask
         if color :
-            img_crop = img_crop*mask_crop[np.newaxis,np.newaxis,np.newaxis,:,:]    #+128*(1-mask_crop[np.newaxis,np.newaxis,np.newaxis,:,:])
+            for i in range(n_levels-1):
+                img_crop[0,i,...] *= mask_crop[:,:]
+            img_crop[0,n_levels-1,...] = img_crop[0,n_levels-1,...]*mask_crop[:,:]+128*(1-mask_crop[:,:])
         else :
-            img_crop *= mask_crop[np.newaxis,np.newaxis,:,:]
+            print(img_crop.shape)
+            img_crop *= mask_crop[np.newaxis,np.newaxis,:,:]    #+0.5*(1-mask_crop[np.newaxis,np.newaxis,:,:])            
 
     return img_crop, level_size
-
 
 
 def inverse_pyramid(img_crop, N_X=N_X, N_Y=N_Y, base_levels=base_levels, color=True, verbose=False):
