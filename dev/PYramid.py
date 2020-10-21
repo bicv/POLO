@@ -1,20 +1,6 @@
 
-mode= 'bilinear' #resizing : continuous transition, reduces edges,contrast
-width = 32 #side of the cropped image used to build the pyramid
-base_levels = 1.61803
-base_levels = 2 #downsampling/upsampling factor
-
-N_batch = 4 #number of images
-pattern = 'i05june05_static_street_boston_p1010808'
-
-n_sublevel = 2 #filters dictionnary, number of sublevels
-n_azimuth = 12 #retinal transform characteristics
-n_theta = 12
-n_phase = 2
-
 import numpy as np
 import matplotlib.pyplot as plt
-%matplotlib inline
 import os
 
 from SLIP import imread
