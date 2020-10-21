@@ -1,4 +1,3 @@
-
 import numpy as np
 import matplotlib.pyplot as plt
 import os
@@ -13,6 +12,29 @@ import torch
 torch.set_default_tensor_type('torch.DoubleTensor')
 
 import imageio
+
+from torch.nn.functional import interpolate 
+
+mode= 'bilinear' #resizing : continuous transition, reduces edges,contrast
+width = 32 #side of the cropped image used to build the pyramid
+base_levels = 1.61803
+base_levels = 2 #downsampling/upsampling factor
+
+N_batch = 4 #number of images 
+pattern = 'i05june05_static_street_boston_p1010808'
+
+n_sublevel = 2 #filters dictionnary, number of sublevels
+n_azimuth = 12 #retinal transform characteristics 
+n_theta = 12
+n_phase = 2
+
+img_orig = Image.open('../data/i05june05_static_street_boston_p1010808.jpeg')
+
+im_color_npy = np.asarray(img_orig)
+N_X, N_Y, _ = im_color_npy.shape #dimensions 
+ds= 1
+im=Image_SLIP({'N_X': N_X, 'N_Y': N_Y, 'do_mask': True})
+
 
 
 def cropped_pyramid(img_tens, width=width, base_levels=base_levels, color=True, do_mask=True, verbose=False):
@@ -64,7 +86,7 @@ def cropped_pyramid(img_tens, width=width, base_levels=base_levels, color=True, 
     if do_mask :
         mask_crop = Image_SLIP({'N_X': width, 'N_Y': width, 'do_mask': True}).mask
         if color :
-            img_crop *= mask_crop[np.newaxis,np.newaxis,np.newaxis,:,:]
+            img_crop = img_crop*mask_crop[np.newaxis,np.newaxis,np.newaxis,:,:]    #+128*(1-mask_crop[np.newaxis,np.newaxis,np.newaxis,:,:])
         else :
             img_crop *= mask_crop[np.newaxis,np.newaxis,:,:]
 
@@ -116,7 +138,7 @@ def level_construct(img_crop_list, loc_data_ij, level_size, level):
     img_lev = torch.zeros((1, 3, level_size[0], level_size[1]))
     img_div = torch.zeros((1, 3, level_size[0], level_size[1]))
     #print(img_lev.shape)
-    nb_saccades = len(img_crop_list)
+    nb_saccades= len(img_crop_list)
     for num_saccade in range(nb_saccades):
         sac_img =  img_crop_list[num_saccade][:, level, :, :, :]
         if level_size[0] < width:
@@ -154,7 +176,7 @@ def level_construct(img_crop_list, loc_data_ij, level_size, level):
     return img_lev
 
 
-def inverse_pyramid_saccades(img_crop_list, loc_data_ij, level_size, N_X=N_X, N_Y=N_Y, base_levels=base_levels, verbose=False):
+def inverse_pyramid_saccades(img_crop_list, img_crop, loc_data_ij, level_size, N_X=N_X, N_Y=N_Y, base_levels=base_levels, verbose=False):
     N_batch = img_crop.shape[0]
     width = img_crop.shape[3]
     n_levels = int(np.log(np.max((N_X, N_Y))/width)/np.log(base_levels)) + 1
@@ -169,6 +191,16 @@ def inverse_pyramid_saccades(img_crop_list, loc_data_ij, level_size, N_X=N_X, N_
     img_rec = img_rec[:, :, (h_res//2-N_X//2):(h_res//2+N_X//2), (w_res//2-N_Y//2):(w_res//2+N_Y//2)]
 
     return img_rec
+
+from LogGabor import LogGabor
+pe = {'N_X': width, 'N_Y': width, 'do_mask': False, 'base_levels':
+          base_levels, 'n_theta': 24, 'B_sf': 0.6, 'B_theta': np.pi/12 ,
+      'use_cache': True, 'figpath': 'results', 'edgefigpath':
+          'results/edges', 'matpath': 'cache_dir', 'edgematpath':
+          'cache_dir/edges', 'datapath': 'database/', 'ext': '.pdf', 'figsize':
+          14.0, 'formats': ['pdf', 'png', 'jpg'], 'dpi': 450, 'verbose': 0}                 #log-Gabor parameters
+lg = LogGabor(pe)
+print('lg shape=', lg.pe.N_X, lg.pe.N_Y)
 
 
 def local_filter(azimuth, theta, phase, sf_0=.25, B_theta=lg.pe.B_theta, radius=width/4):
