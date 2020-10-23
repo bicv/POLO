@@ -261,3 +261,14 @@ def inverse_gabor(out, K, N_X=N_X, N_Y=N_Y, base_levels=base_levels, verbose=Fal
     img_crop_rec =  torch.tensordot(out__, K_inv,  dims=1).reshape((N_batch, n_levels, width, width))
 
     return img_crop_rec
+
+def log_gabor_transform(img_crop, K, color=True):
+    if color:
+        chan_0 = torch.tensordot(img_crop[:,:,0,:,:], K,  dims=2).unsqueeze(2)
+        chan_1 = torch.tensordot(img_crop[:,:,1,:,:], K,  dims=2).unsqueeze(2)
+        chan_2 = torch.tensordot(img_crop[:,:,2,:,:], K,  dims=2).unsqueeze(2)
+        return torch.cat((chan_0, chan_1, chan_2), dim=2)
+    else:
+        return torch.tensordot(img_crop[:,:,:,:], K,  dims=2)
+    
+
