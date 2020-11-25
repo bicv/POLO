@@ -248,16 +248,30 @@ def get_K(width=width, n_sublevel = n_sublevel, n_azimuth = n_azimuth, n_theta =
 
     return K
 
-
-def inverse_gabor(out, K, N_X=N_X, N_Y=N_Y, base_levels=base_levels, verbose=False):
-    N_batch = out.shape[0]
-    width =  K.shape[0]
-    n_levels = int(np.log(np.max((N_X, N_Y))/width)/np.log(base_levels)) + 1
-    n_sublevel, n_azimuth, n_theta, n_phase = K.shape[2:]
-
-    out__ = out.reshape((N_batch, n_levels, n_sublevel*n_azimuth*n_theta*n_phase))
+def get_K_inv(K,width=width, n_sublevel = n_sublevel, n_azimuth = n_azimuth, n_theta = n_theta,
+          n_phase = n_phase, verbose=False):
+    print('Filter tensor shape=', K.shape) 
     K_ = K.reshape((width**2, n_sublevel*n_azimuth*n_theta*n_phase))
-    K_inv = torch.pinverse(K_)
-    img_crop_rec =  torch.tensordot(out__, K_inv,  dims=1).reshape((N_batch, n_levels, width, width))
+    print('Reshaped filter tensor=', K_.shape)
+    
+    K_inv = torch.pinverse(K_) 
+    print('Tensor shape=', K_inv.shape)
+    K_inv =K_inv.reshape(n_sublevel, n_azimuth, n_theta, n_phase, width, width)
 
-    return img_crop_rec
+    return K_inv
+
+def inverse_gabor(log_gabor_coeffs, K_inv, verbose=False):
+    print('Tensor shape=', K_inv.shape)
+    img_rec =  torch.tensordot(log_gabor_coeffs, K_inv,  dims=4)
+    return img_rec
+
+def log_gabor_transform(img_crop, K, color=True):
+    if color:
+        chan_0 = torch.tensordot(img_crop[:,:,0,:,:], K,  dims=2).unsqueeze(2)
+        chan_1 = torch.tensordot(img_crop[:,:,1,:,:], K,  dims=2).unsqueeze(2)
+        chan_2 = torch.tensordot(img_crop[:,:,2,:,:], K,  dims=2).unsqueeze(2)
+        return torch.cat((chan_0, chan_1, chan_2), dim=2)
+    else:
+        return torch.tensordot(img_crop[:,:,:,:], K,  dims=2)
+    
+
