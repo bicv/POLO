@@ -42,12 +42,17 @@ def cropped_pyramid(img_tens, width=width, base_levels=base_levels, color=True, 
     N_batch, _, N_X, N_Y = img_tens.shape # tensor of the images  (dimension 4)
     n_levels = int(np.log(np.max((N_X, N_Y))/width)/np.log(base_levels)) + 1 #computing the number of iterations cf:downsampling
     
+    if do_mask:
+        bias = 128
+    else:
+        bias = 0
+    
     if color :
-        img_crop = torch.zeros((N_batch, n_levels, 3, width, width))+128
+        img_crop = torch.zeros((N_batch, n_levels, 3, width, width))+bias
         level_size=[[N_X, N_Y]]
 
     else :
-        img_crop = torch.zeros((N_batch, n_levels, width, width))+128 #creating the tensor to store the cropped images while pyramiding
+        img_crop = torch.zeros((N_batch, n_levels, width, width))+bias #creating the tensor to store the cropped images while pyramiding
         
     img_down = img_tens.clone()
     for i_level in range(n_levels-1): #each iteration -> residual_image = image - downsampled_cloned_image_reshaped_to_the_right_size 
