@@ -134,7 +134,7 @@ def saccade_to(img_color, orig, loc_data_ij):
     return img_copy
 
 
-def level_construct(img_crop_list, loc_data_ij, level_size, level):
+def level_construct(img_crop_list, loc_data_ij, level_size, level, verbose=False):
     n_levels = int(np.log(np.max((N_X, N_Y))/width)/np.log(base_levels)) + 1
     orig = level_size[0]//2, level_size[1]//2
     img_lev = torch.zeros((1, 3, level_size[0], level_size[1]))
@@ -168,27 +168,29 @@ def level_construct(img_crop_list, loc_data_ij, level_size, level):
     for ind in indices_zero:
         img_div_npy[ind[0], ind[1], ind[2], ind[3]] = 1
     img_lev = img_lev // img_div_npy
-    plt.figure()
+    
     if level < n_levels-1:
         bias = 128
     else:
         bias = 0
-    img_aff = img_lev.detach().permute(0,2,3,1)[0,:,:,:].numpy()
-    plt.imshow((img_aff+bias).astype('uint8'))
+    if verbose:
+        plt.figure()
+        img_aff = img_lev.detach().permute(0,2,3,1)[0,:,:,:].numpy()
+        plt.imshow((img_aff+bias).astype('uint8'))
     return img_lev
 
 
-def inverse_pyramid_saccades(img_crop_list, img_crop, loc_data_ij, level_size, N_X=N_X, N_Y=N_Y, base_levels=base_levels, verbose=False):
-    N_batch = img_crop.shape[0]
-    width = img_crop.shape[3]
+def inverse_pyramid_saccades(img_crop_list, loc_data_ij, level_size, N_X=N_X, N_Y=N_Y, base_levels=base_levels, verbose=False):
+    N_batch = img_crop_list[0].shape[0]
+    width = img_crop_list[0].shape[3]
     n_levels = int(np.log(np.max((N_X, N_Y))/width)/np.log(base_levels)) + 1
 
     #img_rec = img_crop[:, -1, :, :, :] #.unsqueeze(1)
-    img_rec = level_construct(img_crop_list, loc_data_ij, level_size[n_levels-1], level=n_levels-1)
+    img_rec = level_construct(img_crop_list, loc_data_ij, level_size[n_levels-1], level=n_levels-1, verbose=verbose)
     for i_level in range(n_levels-1)[::-1]: # from the top to the bottom of the pyramid
         img_rec = interpolate(img_rec, scale_factor=base_levels, mode=mode) #upsampling (factor=base_levels)
         h_res, w_res = img_rec.shape[-2:]
-        img_lev = level_construct(img_crop_list, loc_data_ij, level_size[i_level], level=i_level)
+        img_lev = level_construct(img_crop_list, loc_data_ij, level_size[i_level], level=i_level, verbose=verbose)
         img_rec += img_lev #adding previous central crop to img_crop
     img_rec = img_rec[:, :, (h_res//2-N_X//2):(h_res//2+N_X//2), (w_res//2-N_Y//2):(w_res//2+N_Y//2)]
 
