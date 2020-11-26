@@ -43,11 +43,11 @@ def cropped_pyramid(img_tens, width=width, base_levels=base_levels, color=True, 
     n_levels = int(np.log(np.max((N_X, N_Y))/width)/np.log(base_levels)) + 1 #computing the number of iterations cf:downsampling
     
     if color :
-        img_crop = torch.zeros((N_batch, n_levels, 3, width, width))
+        img_crop = torch.zeros((N_batch, n_levels, 3, width, width))+128
         level_size=[[N_X, N_Y]]
 
     else :
-        img_crop = torch.zeros((N_batch, n_levels, width, width)) #creating the tensor to store the cropped images while pyramiding
+        img_crop = torch.zeros((N_batch, n_levels, width, width))+128 #creating the tensor to store the cropped images while pyramiding
         
     img_down = img_tens.clone()
     for i_level in range(n_levels-1): #each iteration -> residual_image = image - downsampled_cloned_image_reshaped_to_the_right_size 
@@ -88,7 +88,7 @@ def cropped_pyramid(img_tens, width=width, base_levels=base_levels, color=True, 
         if color :
             for i in range(n_levels-1):
                 img_crop[0,i,...] *= mask_crop[:,:]
-            img_crop[0,n_levels-1,...] = img_crop[0,n_levels-1,...]*mask_crop[:,:]+128*(1-mask_crop[:,:])
+            img_crop[0,n_levels-1,...] = (img_crop[0,n_levels-1,...]-128)*mask_crop[:,:]+128 #*(1-mask_crop[:,:])
         else :
             print(img_crop.shape)
             img_crop *= mask_crop[np.newaxis,np.newaxis,:,:]    #+0.5*(1-mask_crop[np.newaxis,np.newaxis,:,:])            
@@ -262,8 +262,9 @@ def get_K_inv(K,width=width, n_sublevel = n_sublevel, n_azimuth = n_azimuth, n_t
 
 def inverse_gabor(log_gabor_coeffs, K_inv, verbose=False):
     print('Tensor shape=', K_inv.shape)
-    img_rec =  torch.tensordot(log_gabor_coeffs, K_inv,  dims=4)
-    return img_rec
+    img_crop =  torch.tensordot(log_gabor_coeffs, K_inv,  dims=4)
+    img_crop[:,-1,...]+=128
+    return img_crop
 
 def log_gabor_transform(img_crop, K, color=True):
     if color:
