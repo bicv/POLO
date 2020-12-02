@@ -37,7 +37,7 @@ im=Image_SLIP({'N_X': N_X, 'N_Y': N_Y, 'do_mask': True})
 
 
 
-def cropped_pyramid(img_tens, width=width, base_levels=base_levels, color=True, do_mask=True, verbose=False):
+def cropped_pyramid(img_tens, width=width, base_levels=base_levels, color=True, do_mask=True, verbose=False, squeeze=False):
     
     N_batch, _, N_X, N_Y = img_tens.shape # tensor of the images  (dimension 4)
     n_levels = int(np.log(np.max((N_X, N_Y))/width)/np.log(base_levels)) + 1 #computing the number of iterations cf:downsampling
@@ -79,13 +79,13 @@ def cropped_pyramid(img_tens, width=width, base_levels=base_levels, color=True, 
     
     if color :
         img_crop[:, n_levels-1, :, 
-                 (width//2-h_res//2):(width//2+h_res//2), 
-                 (width//2-w_res//2):(width//2+w_res//2)] = img_down #[0, :, :, :]
+                 (width//2-h_res//2):(width//2-h_res//2+h_res), 
+                 (width//2-w_res//2):(width//2-w_res//2+w_res)] = img_down #[0, :, :, :]
         
     else :
         img_crop[:, n_levels-1, 
-             (width//2-h_res//2):(width//2+h_res//2), 
-             (width//2-w_res//2):(width//2+w_res//2)] = img_down[:, 0, :, :]
+             (width//2-h_res//2):(width//2-h_res//2+h_res), 
+             (width//2-w_res//2):(width//2-w_res//2+w_res)] = img_down[:, 0, :, :]
     if verbose: print('Top tensor shape=', img_down.shape, ', Final n_levels=', n_levels) #print image's dimensions after downsampling, condition max(img_down.shape[-2:])<=width satisfied
     
     if do_mask :
@@ -98,7 +98,10 @@ def cropped_pyramid(img_tens, width=width, base_levels=base_levels, color=True, 
             print(img_crop.shape)
             img_crop *= mask_crop[np.newaxis,np.newaxis,:,:]    #+0.5*(1-mask_crop[np.newaxis,np.newaxis,:,:])            
 
-    return img_crop, level_size
+    if squeeze:
+        return img_crop.squeeze(), level_size
+    else:
+        return img_crop, level_size
 
 
 def inverse_pyramid(img_crop, N_X=N_X, N_Y=N_Y, base_levels=base_levels, color=True, verbose=False):
