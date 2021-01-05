@@ -64,15 +64,23 @@ def cropped_pyramid(img_tens, width=width, base_levels=base_levels, color=True, 
         h_res, w_res = img_residual.shape[-2:] #at each iteration the residual image size is reduced of a factor 1/base_levels (img_down the image downsampled at the previous iteration)
 
         if color :
-            img_crop[:, i_level, :, :, :] = img_residual[:, :, 
-                            (h_res//2-width//2):(h_res//2+width//2), 
-                            (w_res//2-width//2):(w_res//2+width//2)]
-            level_size.append(list(img_down.shape[-2:]))
+            try :
+                img_crop[:, i_level, :, :, :] = img_residual[:, :, 
+                            (h_res//2-width//2):(h_res//2-width//2+width), 
+                            (w_res//2-width//2):(w_res//2-width//2+width)]
+                level_size.append(list(img_down.shape[-2:]))
+            except :
+                img_crop[:, i_level, :, :, :] = img_residual[:, :, 
+                            (h_res//2-width//2):(h_res//2-width//2+width), 
+                            (w_res//2-width//2):(w_res//2-width//2+width)].unsqueeze(0)
+                level_size.append(list(img_down.shape[-2:]))
+                
+           
             
         else :
             img_crop[:, i_level, :, :] = img_residual[:, 0, 
-                            (h_res//2-width//2):(h_res//2+width//2), 
-                            (w_res//2-width//2):(w_res//2+width//2)] #the central crop of residual image stored in tensor img_crop
+                            (h_res//2-width//2):(h_res//2-width//2+width), 
+                            (w_res//2-width//2):(w_res//2-width//2+width)] #the central crop of residual image stored in tensor img_crop
             level_size=0
             
     h_res, w_res = img_down.shape[-2:]
