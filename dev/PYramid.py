@@ -281,7 +281,7 @@ def get_K_inv(K,width=width, n_sublevel = n_sublevel, n_azimuth = n_azimuth, n_t
 def inverse_gabor(log_gabor_coeffs, K_inv, verbose=False):
     print('Tensor shape=', K_inv.shape)
     img_crop =  torch.tensordot(log_gabor_coeffs, K_inv,  dims=4)
-    img_crop[:,-1,...]+=128
+    img_crop[:,-1,...]+=128 # !! on residuals only !!
     return img_crop
 
 def log_gabor_transform(img_crop, K, color=True):
