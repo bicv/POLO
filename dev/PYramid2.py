@@ -8,6 +8,8 @@ import time
 
 from PIL import Image
 
+from skimage.color import rgb2hsv, rgb2lab, hsv2rgb, lab2rgb
+
 import torch
 torch.set_default_tensor_type('torch.DoubleTensor')
 
@@ -35,68 +37,188 @@ N_X, N_Y, _ = im_color_npy.shape #dimensions
 ds= 1
 im=Image_SLIP({'N_X': N_X, 'N_Y': N_Y, 'do_mask': True})
 
+def color_encode(img, color_mode, n_batch, width, height, n_color):
+    img = img.permute(0,2,3,1)
+    img = img.view(n_batch * width, height, n_color)
+    img = img.numpy().clip(0,255).astype('uint8')
+    if color_mode == 'lab':
+        img = rgb2lab(img)
+    elif color_mode == 'hsv':
+        img = rgb2hsv(img)
+    img = torch.Tensor(img)
+    img = img.view(n_batch, width, height, n_color)
+    img = img.permute(0,3,1,2)
+    return img
 
 
-def cropped_pyramid(img_tens, width=width, base_levels=base_levels, color=True, do_mask=False, verbose=False, squeeze=False, gauss=False, n_levels=None):
+def cropped_pyramid(img_tens, 
+                    width=width, 
+                    base_levels=base_levels, 
+                    color=True, 
+                    do_mask=False, 
+                    verbose=False, 
+                    squeeze=False, 
+                    gauss=False, 
+                    n_levels=None,
+                    color_mode='rgb'):
     
-    N_batch, _, N_X, N_Y = img_tens.shape # tensor of the images  (dimension 4)
+    n_batch, _, N_X, N_Y = img_tens.shape 
+    # tensor of the images  (dimension 4)
     if n_levels == None:
-        n_levels = int(np.log(np.max((N_X, N_Y))/width)/np.log(base_levels)) + 1 #computing the number of iterations cf:downsampling
+        n_levels = int(np.log(np.max((N_X, N_Y))/width)/np.log(base_levels)) + 1 
+        #computing the number of iterations cf:downsampling
     
-    if do_mask and not gauss:
+    if do_mask and color_mode=='rgb' and not gauss:
         bias = 128
     else:
         bias = 0
     
+    img_down = img_tens.clone()
     if color :
-        img_crop = torch.zeros((N_batch, n_levels, 3, width, width))+bias
+        img_crop = torch.zeros((n_batch, n_levels, 3, width, width)) + bias
         level_size=[[N_X, N_Y]]
     else :
-        img_crop = torch.zeros((N_batch, n_levels, width, width))+bias #creating the tensor to store the cropped images while pyramiding
+        img_crop = torch.zeros((n_batch, n_levels, 1, width, width)) + bias 
+        #creating the tensor to store the cropped images while pyramiding
+        img_down = img_down.unsqueeze(2) # add color dim
         
-    img_down = img_tens.clone()
-    for i_level in range(n_levels-1): #each iteration -> residual_image = image - downsampled_cloned_image_reshaped_to_the_right_size 
-        img_residual = img_down.clone()
-        img_down = interpolate(img_down, scale_factor=1/base_levels, mode=mode) #downsampling
-        if not gauss:
-            img_residual -= interpolate(img_down, size=img_residual.shape[-2:], mode=mode)  #upsizing in order to substract
-
-        if verbose: print('Tensor shape=', img_down.shape, ', shape=', img_residual.shape)
-        h_res, w_res = img_residual.shape[-2:] #at each iteration the residual image size is reduced of a factor 1/base_levels (img_down the image downsampled at the previous iteration)
-
-        if color :
-            try :
-                img_crop[:, i_level, :, :, :] = img_residual[:, :, 
-                            (h_res//2-width//2):(h_res//2-width//2+width), 
-                            (w_res//2-width//2):(w_res//2-width//2+width)]
-            except :
-                img_crop[:, i_level, :, width//2-h_res//2:width//2+h_res-h_res//2, 
-                                        width//2-w_res//2:width//2+w_res-w_res//2] = img_residual[:,:,:,:]                   
-                #img_crop[:, i_level, :, :, :] = img_residual[:, :, 
-                #            (h_res//2-width//2):(h_res//2-width//2+width), 
-                #            (w_res//2-width//2):(w_res//2-width//2+width)].unsqueeze(0)
-            level_size.append(list(img_down.shape[-2:]))
-                
-           
-            
-        else :
-            img_crop[:, i_level, :, :] = img_residual[:, 0, 
-                            (h_res//2-width//2):(h_res//2-width//2+width), 
-                            (w_res//2-width//2):(w_res//2-width//2+width)] #the central crop of residual image stored in tensor img_crop
-            level_size=0
-            
-    h_res, w_res = img_down.shape[-2:]
     
-    if color :
-        img_crop[:, n_levels-1, :, 
-                 (width//2-h_res//2):(width//2-h_res//2+h_res), 
-                 (width//2-w_res//2):(width//2-w_res//2+w_res)] = img_down #[0, :, :, :]
+    for i_level in range(n_levels-1): 
+        #each iteration -> residual_image = image - downsampled_cloned_image_reshaped_to_the_right_size 
+        img_residual = img_down.clone()
+        img_down = interpolate(img_down, scale_factor=1/base_levels, mode=mode) 
+        #downsampling
+        if not gauss:
+            img_sub = interpolate(img_down, size=img_residual.shape[-2:], mode=mode)  
+            #upsizing in order to substract
+
+        if verbose: 
+            print('Tensor shape=', img_down.shape, ', shape=', img_residual.shape)
+        n_batch, n_color, h_res, w_res = img_residual.shape 
+        #at each iteration the residual image size is reduced of a factor 1/base_levels (img_down the image downsampled at the previous iteration)
         
-    else :
-        img_crop[:, n_levels-1, 
-             (width//2-h_res//2):(width//2-h_res//2+h_res), 
-             (width//2-w_res//2):(width//2-w_res//2+w_res)] = img_down[:, 0, :, :]
-    if verbose: print('Top tensor shape=', img_down.shape, ', Final n_levels=', n_levels) #print image's dimensions after downsampling, condition max(img_down.shape[-2:])<=width satisfied
+        if h_res > width or w_res > width :
+            i_min = max(h_res // 2 - width // 2, 0)
+            diff_i_min = i_min - (h_res // 2 - width // 2)
+            if h_res > width:
+                i_max = i_min + width
+                diff_i_max = width
+            else:
+                i_max = i_min + h_res
+                diff_i_max = diff_i_min + h_res
+                
+            j_min = max(w_res // 2 - width // 2, 0)
+            diff_j_min = j_min - (w_res // 2 - width // 2)
+            if w_res > width:
+                j_max = j_min + width
+                diff_j_max = width
+            else:
+                j_max = j_min + w_res
+                diff_j_max = diff_j_min + w_res
+            w_i = diff_i_max - diff_i_min
+            w_j = diff_j_max - diff_j_min
+            
+            img_base_crop = img_residual[:, :, i_min:i_max, j_min:j_max]
+            if color_mode != 'rgb':
+                img_base_crop = color_encode(img_base_crop, 
+                                             color_mode, 
+                                             n_batch, 
+                                             w_i,
+                                             w_j,
+                                             n_color)
+            if not gauss:
+                img_sub_crop = img_sub[:, :, i_min:i_max, j_min:j_max]
+                if color_mode != 'rgb':
+                    img_sub_crop = color_encode(img_sub_crop, 
+                                             color_mode, 
+                                             n_batch, 
+                                             w_i,
+                                             w_j,
+                                             n_color)
+                img_crop[:, 
+                         i_level, 
+                         :, 
+                         diff_i_min:diff_i_max, 
+                         diff_j_min:diff_j_max] = img_base_crop - img_sub_crop
+            else:
+                img_crop[:, 
+                         i_level, 
+                         :, 
+                         diff_i_min:diff_i_max,
+                         diff_j_min:diff_j_max] = img_base_crop
+        else :
+            i_min = width // 2 - h_res // 2
+            i_max = i_min + h_res
+            j_min = width // 2 - w_res // 2
+            j_max = j_min + w_res
+            img_base_crop = img_residual
+            #print(img_base_crop.shape)
+            if color_mode != 'rgb':
+                img_base_crop = color_encode(img_base_crop, 
+                                             color_mode, 
+                                             n_batch, 
+                                             h_res, 
+                                             w_res,
+                                             n_color)
+            if not gauss:
+                img_sub_crop = img_sub
+                #print(img_sub_crop.shape)
+                if color_mode != 'rgb':
+                    img_sub_crop = color_encode(img_sub_crop, 
+                                             color_mode, 
+                                             n_batch, 
+                                             h_res,
+                                             w_res,
+                                             n_color)
+
+                img_crop[:, 
+                         i_level, 
+                         :, 
+                         i_min:i_max, 
+                         j_min:j_max] = img_base_crop - img_sub_crop  
+            else:
+                img_crop[:, 
+                         i_level, 
+                         :, 
+                         i_min:i_max,                 
+                         j_min:j_max] = img_base_crop                          
+          
+        level_size.append(list(img_down.shape[-2:]))
+            
+    n_batch, n_color, h_res, w_res = img_down.shape
+    if h_res > width or w_res > width :
+        i_min = max(h_res // 2 - width // 2, 0)
+        diff_i_min = i_min - (h_res // 2 - width // 2)
+        i_max = min(i_min + width, i_min + h_res)
+        diff_i_max = i_max - i_min
+        j_min = max(w_res // 2 - width // 2, 0)
+        diff_j_min = j_min - (w_res // 2 - width // 2)
+        j_max = min(j_min + width, j_min + w_res)
+        diff_j_max = j_max - j_min
+        img_crop[:, 
+                 n_levels-1, 
+                 :,
+                 diff_i_min:diff_i_max, 
+                 diff_j_min:diff_j_max] = img_down[:, :, i_min:i_max, j_min:j_max]
+    else:
+        i_min = width // 2 - h_res // 2
+        i_max = i_min + h_res
+        j_min = width // 2 - w_res // 2
+        j_max = j_min + w_res
+        img_crop[:, n_levels-1, :, 
+                 i_min:i_max, 
+                 j_min:j_max] = img_down 
+    if color_mode != 'rgb':
+        img_crop[:, n_levels-1, ...] = color_encode(img_crop[:, n_levels-1, ...], 
+                                                     color_mode, 
+                                                     n_batch, 
+                                                     width,
+                                                     width,
+                                                     n_color)
+    if not color :
+        img_crop = img_crop.squeeze(2)
+    if verbose: print('Top tensor shape=', img_down.shape, ', Final n_levels=', n_levels) 
+        #print image's dimensions after downsampling, condition max(img_down.shape[-2:])<=width satisfied
     
     if do_mask :
         mask_crop = Image_SLIP({'N_X': width, 'N_Y': width, 'do_mask': True}).mask
@@ -118,7 +240,7 @@ def cropped_pyramid(img_tens, width=width, base_levels=base_levels, color=True, 
 
 
 def inverse_pyramid(img_crop, N_X=N_X, N_Y=N_Y, base_levels=base_levels, color=True, 
-                    verbose=False, gauss=False, n_levels=None):
+                    verbose=False, gauss=False, n_levels=None, color_test = False):
     N_batch = img_crop.shape[0]
     width = img_crop.shape[3]
     if n_levels == None:
@@ -130,9 +252,17 @@ def inverse_pyramid(img_crop, N_X=N_X, N_Y=N_Y, base_levels=base_levels, color=T
             img_rec = interpolate(img_rec, scale_factor=base_levels, mode=mode) #upsampling (factor=base_levels)
             h_res, w_res = img_rec.shape[-2:]
             if gauss:
-                img_rec[:, :,
+                if not color_test:
+                    img_rec[:, :,
                     (h_res//2-width//2):(h_res//2+width//2),
                     (w_res//2-width//2):(w_res//2+width//2)] = img_crop[:, i_level, :, :, :]
+                else:
+                    img_rec[:, :,
+                    (h_res//2-width//2):(h_res//2+width//2),
+                    (w_res//2-width//2):(w_res//2+width//2)] = torch.max(img_rec[:, :,
+                    (h_res//2-width//2):(h_res//2+width//2),
+                    (w_res//2-width//2):(w_res//2+width//2)], img_crop[:, i_level, :, :, :])
+                        
             else:
                 img_rec[:, :,
                         (h_res//2-width//2):(h_res//2+width//2),
@@ -144,7 +274,7 @@ def inverse_pyramid(img_crop, N_X=N_X, N_Y=N_Y, base_levels=base_levels, color=T
         for i_level in range(n_levels-1)[::-1]: # from the top to the bottom of the pyramid
             img_rec = interpolate(img_rec, scale_factor=base_levels, mode=mode) #upsampling (factor=base_levels)
             h_res, w_res = img_rec.shape[-2:]
-            if gauss:
+            if gauss :
                 img_rec[:, 0, (h_res//2-width//2):(h_res//2+width//2), (w_res//2-width//2):(w_res//2+width//2)] = img_crop[:, i_level, :, :] #adding previous central crop to img_crop
             else:
                 img_rec[:, 0, (h_res//2-width//2):(h_res//2+width//2), (w_res//2-width//2):(w_res//2+width//2)] += img_crop[:, i_level, :, :] #adding previous central crop to img_crop
@@ -227,18 +357,21 @@ def inverse_pyramid_saccades(img_crop_list, loc_data_ij, level_size, N_X=N_X, N_
 
     return img_rec
 
+
+
 from LogGabor import LogGabor
 pe = {'N_X': width, 'N_Y': width, 'do_mask': False, 'base_levels':
           base_levels, 'n_theta': 24, 'B_sf': 0.6, 'B_theta': np.pi/12 ,
       'use_cache': True, 'figpath': 'results', 'edgefigpath':
           'results/edges', 'matpath': 'cache_dir', 'edgematpath':
           'cache_dir/edges', 'datapath': 'database/', 'ext': '.pdf', 'figsize':
-          14.0, 'formats': ['pdf', 'png', 'jpg'], 'dpi': 450, 'verbose': 0}                 #log-Gabor parameters
+          14.0, 'formats': ['pdf', 'png', 'jpg'], 'dpi': 450, 'verbose': 0}                 
+#log-Gabor parameters
 lg = LogGabor(pe)
-print('lg shape=', lg.pe.N_X, lg.pe.N_Y)
+print('Default lg shape=', lg.pe.N_X, lg.pe.N_Y)
 
 
-def local_filter(azimuth, theta, phase, sf_0=.25, B_theta=lg.pe.B_theta, radius=width/4):
+def local_filter(azimuth, theta, phase, sf_0=.25, B_theta=lg.pe.B_theta, radius=width/4, lg=lg):
 
     x, y = lg.pe.N_X//2, lg.pe.N_Y//2         # center
     x += radius * np.cos(azimuth)
@@ -248,8 +381,19 @@ def local_filter(azimuth, theta, phase, sf_0=.25, B_theta=lg.pe.B_theta, radius=
         lg.loggabor(x, y, sf_0=sf_0, B_sf=lg.pe.B_sf, theta=theta, B_theta=B_theta) * np.exp(-1j * phase)))
 
 
-def get_K(width=width, n_sublevel = n_sublevel, n_azimuth = n_azimuth, n_theta = n_theta,
-          n_phase = n_phase, r_min = width/6, r_max = width/3, log_density_ratio = 2, verbose=False): #filter tensor K definition using Di Carlo's formulas
+def get_K(width=width, 
+          n_sublevel = n_sublevel, 
+          n_azimuth = n_azimuth, 
+          n_theta = n_theta,
+          n_phase = n_phase, 
+          r_min = width/6, 
+          r_max = width/3, 
+          log_density_ratio = 2, 
+          verbose=False,
+          lg=lg): 
+    
+    #filter tensor K definition using Di Carlo's formulas
+    
     K = np.zeros((width, width, n_sublevel, n_azimuth, n_theta, n_phase))
     for i_sublevel in range(n_sublevel):
         #sf_0 = .25*(np.sqrt(2)**i_sublevel)
@@ -271,9 +415,16 @@ def get_K(width=width, n_sublevel = n_sublevel, n_azimuth = n_azimuth, n_theta =
             for i_theta in range(n_theta):
                 for i_phase in range(n_phase):
                     azimuth = (i_azimuth+i_sublevel/2)*2*np.pi/n_azimuth
-                    K[..., i_sublevel, i_azimuth, i_theta, i_phase] = local_filter(azimuth=azimuth,
-                                                                                   theta=i_theta*np.pi/n_theta + azimuth,
-                                                                                   phase=i_phase*np.pi/n_phase, sf_0=sf_0, radius=radius)
+                    K[..., 
+                      i_sublevel, 
+                      i_azimuth, 
+                      i_theta, 
+                      i_phase] = local_filter(azimuth=azimuth,
+                                              theta=i_theta*np.pi/n_theta + azimuth,
+                                              phase=i_phase*np.pi/n_phase, 
+                                              sf_0=sf_0, 
+                                              radius=radius,
+                                              lg=lg)
     K = torch.Tensor(K)
 
     if verbose: print('K shape=', K.shape)
