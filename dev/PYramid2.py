@@ -390,6 +390,7 @@ def get_K(width=width,
           r_max = width/3, 
           log_density_ratio = 2, 
           verbose=False,
+          phase_shift=False,
           lg=lg): 
     
     #filter tensor K definition using Di Carlo's formulas
@@ -405,7 +406,7 @@ def get_K(width=width,
         c = r_min - a
         r_ref = r_min + i_sublevel * (r_max - r_min) / n_sublevel
         r_prim =  a * np.exp(b * (r_ref - r_min)) + c
-        radius =  r_prim
+        radius =  r_prim 
         d_r_prim = a * b * np.exp(b * (r_ref - r_min))
         p_ref = 4 * width / 32
         p_loc = p_ref * d_r_prim
@@ -414,7 +415,10 @@ def get_K(width=width,
         for i_azimuth in range(n_azimuth):
             for i_theta in range(n_theta):
                 for i_phase in range(n_phase):
-                    azimuth = (i_azimuth+i_sublevel/2)*2*np.pi/n_azimuth
+                    if phase_shift:
+                        azimuth = (i_azimuth+((i_sublevel+i_phase)%2)/2)*2*np.pi/n_azimuth
+                    else:
+                        azimuth = (i_azimuth+(i_sublevel%2)/2)*2*np.pi/n_azimuth
                     K[..., 
                       i_sublevel, 
                       i_azimuth, 
