@@ -578,9 +578,9 @@ class SpatialTransformer(nn.Module):
         self.h_size = n_levels * n_azimuth//4 * 128
 
         self.fc_loc = nn.Sequential(
-            nn.Linear(self.h_size, 128),
+            nn.Linear(self.h_size, 128, bias=False),
             nn.ReLU(True),
-            nn.Linear(128, 2)
+            nn.Linear(128, 2, bias=False)
         )
 
         # Initialize the weights/bias with identity transformation
