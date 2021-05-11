@@ -19,7 +19,6 @@ from torch.nn.functional import interpolate
 
 mode= 'bilinear' #resizing : continuous transition, reduces edges,contrast
 width = 32 #side of the cropped image used to build the pyramid
-base_levels = 1.61803
 base_levels = 2 #downsampling/upsampling factor
 
 N_batch = 4 #number of images 
@@ -30,12 +29,12 @@ n_azimuth = 12 #retinal transform characteristics
 n_theta = 12
 n_phase = 2
 
-img_orig = Image.open('../data/i05june05_static_street_boston_p1010808.jpeg')
+#img_orig = Image.open('../data/i05june05_static_street_boston_p1010808.jpeg')
 
-im_color_npy = np.asarray(img_orig)
-N_X, N_Y, _ = im_color_npy.shape #dimensions 
-ds= 1
-im=Image_SLIP({'N_X': N_X, 'N_Y': N_Y, 'do_mask': True})
+#im_color_npy = np.asarray(img_orig)
+#N_X, N_Y, _ = im_color_npy.shape #dimensions 
+#ds= 1
+#im=Image_SLIP({'N_X': N_X, 'N_Y': N_Y, 'do_mask': True})
 
 def color_encode(img, color_mode, n_batch, width, height, n_color):
     img = img.permute(0,2,3,1)
@@ -75,13 +74,12 @@ def cropped_pyramid(img_tens,
     
     img_down = img_tens.clone()
     if color :
-        img_crop = torch.zeros((n_batch, n_levels, 3, width, width)) + bias
-        level_size=[[N_X, N_Y]]
+        img_crop = torch.zeros((n_batch, n_levels, 3, width, width)) + bias        
     else :
         img_crop = torch.zeros((n_batch, n_levels, 1, width, width)) + bias 
         #creating the tensor to store the cropped images while pyramiding
-        img_down = img_down.unsqueeze(2) # add color dim
-        
+        #img_down = img_down.unsqueeze(2) # add color dim
+    level_size=[[N_X, N_Y]]    
     
     for i_level in range(n_levels-1): 
         #each iteration -> residual_image = image - downsampled_cloned_image_reshaped_to_the_right_size 
@@ -239,7 +237,7 @@ def cropped_pyramid(img_tens,
         return img_crop, level_size
 
 
-def inverse_pyramid(img_crop, N_X=N_X, N_Y=N_Y, base_levels=base_levels, color=True, 
+def inverse_pyramid(img_crop, N_X=1024, N_Y=712, base_levels=base_levels, color=True, 
                     verbose=False, gauss=False, n_levels=None, color_test = False):
     N_batch = img_crop.shape[0]
     width = img_crop.shape[3]
@@ -248,6 +246,7 @@ def inverse_pyramid(img_crop, N_X=N_X, N_Y=N_Y, base_levels=base_levels, color=T
 
     if color :
         img_rec = img_crop[:, -1, :, :, :]#.unsqueeze(1)
+        h_res, w_res = img_rec.shape[-2:]
         for i_level in range(n_levels-1)[::-1]: # from the top to the bottom of the pyramid
             img_rec = interpolate(img_rec, scale_factor=base_levels, mode=mode) #upsampling (factor=base_levels)
             h_res, w_res = img_rec.shape[-2:]
@@ -341,7 +340,7 @@ def level_construct(img_crop_list, loc_data_ij, level_size, level, verbose=False
     return img_lev
 
 
-def inverse_pyramid_saccades(img_crop_list, loc_data_ij, level_size, N_X=N_X, N_Y=N_Y, base_levels=base_levels, verbose=False):
+def inverse_pyramid_saccades(img_crop_list, loc_data_ij, level_size, N_X=1024, N_Y=712, base_levels=base_levels, verbose=False):
     N_batch = img_crop_list[0].shape[0]
     width = img_crop_list[0].shape[3]
     n_levels = int(np.log(np.max((N_X, N_Y))/width)/np.log(base_levels)) + 1
