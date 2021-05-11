@@ -237,7 +237,7 @@ def cropped_pyramid(img_tens,
         return img_crop, level_size
 
 
-def inverse_pyramid(img_crop, N_X=1024, N_Y=712, base_levels=base_levels, color=True, 
+def inverse_pyramid(img_crop, N_X=768, N_Y=1024, base_levels=base_levels, color=True, 
                     verbose=False, gauss=False, n_levels=None, color_test = False):
     N_batch = img_crop.shape[0]
     width = img_crop.shape[3]
@@ -340,7 +340,7 @@ def level_construct(img_crop_list, loc_data_ij, level_size, level, verbose=False
     return img_lev
 
 
-def inverse_pyramid_saccades(img_crop_list, loc_data_ij, level_size, N_X=1024, N_Y=712, base_levels=base_levels, verbose=False):
+def inverse_pyramid_saccades(img_crop_list, loc_data_ij, level_size, N_X=768, N_Y=1024, base_levels=base_levels, verbose=False):
     N_batch = img_crop_list[0].shape[0]
     width = img_crop_list[0].shape[3]
     n_levels = int(np.log(np.max((N_X, N_Y))/width)/np.log(base_levels)) + 1
