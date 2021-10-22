@@ -8,7 +8,6 @@ import os
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import torch.nn.functional as F
 import pandas as pd
 from skimage import io, transform
 import numpy as np
@@ -47,8 +46,8 @@ width = 32
 n_levels = 7 #int(np.log(np.max((N_X, N_Y))/width)/np.log(base_levels)) + 1
 base_levels = 2
 n_color = 3
-r_min = width / 8 
-r_max = width / 2 
+r_min = width / 8 # width / 16 
+r_max = width / 2 # 7 * width / 16
 n_sublevel = n_eccentricity = 4
 n_azimuth = 16
 n_theta = 8
@@ -73,25 +72,32 @@ print('logpolar #params :', logpolar_n_params)
 # In[8]:
 
 
-out_chan = 1024
+out_chan=32
 gauss = False
 do_mask = False
 color = True
-color_mode= 'lab' # 'hsv' 
-print ('encoder #params :', out_chan)
+color_mode= 'lab' # 'hsv' #True
+print ('encoder #params :', out_chan*n_color*n_levels)
 
 
 # In[9]:
 
 
 if gauss:
-    script_name = '2021-05-10-log-polar-compressed-sensing-softplus-gauss-'+color_mode
+    script_name = '2021-10-22-log-polar-deep-convolutional-no-max-pool-no-relu-gauss-'+color_mode
 else:
-    script_name = '2021-05-10-log-polar-compressed-sensing-pool-softplus-laplace-'+color_mode
+    script_name = '2021-10-22-log-polar-deep-convolutional-no-max-pool-no-relu-laplace-'+color_mode
 
 
 # ### Image utilities
-
+def tensor_pyramid_display(img_pyr_tens, bias = 0):
+    fig, axs = plt.subplots(1, n_levels, figsize=(20,20))
+    img_aff = img_pyr_tens.permute(0,1,3,4,2).detach().numpy()
+    for i_level, ax in enumerate(axs):
+        ax.imshow((img_aff[0, i_level, ...]+bias).clip(0,255).astype('uint8'))
+        ax.plot([width/2], [width/2], 'r+', ms=32);
+    #print('Tensor shape=', img_rec.shape) 
+    return axs
 # In[10]:
 
 
@@ -177,7 +183,9 @@ K = get_K(width=width,
           phase_shift=phase_shift,
           lg=lg)
 
-
+K_mean= torch.norm(K, dim=4).unsqueeze(4)K = torch.cat((K, K_mean), dim=4) 
+n_theta = 9K = K_mean
+n_theta = 1plt.plot(K.flatten())
 # ### Gabor filters pseudo-inverse
 
 # In[16]:
@@ -187,9 +195,23 @@ K_inv = get_K_inv(K, width=width, n_sublevel = n_sublevel, n_azimuth = n_azimuth
 plt.plot(K_inv.flatten())
 
 
+# In[17]:
+
+
+### regularized inverse gabor
+K_ = K.reshape((width**2, n_sublevel*n_azimuth*n_theta*n_phase))
+print('Reshaped filter tensor=', K_.shape)
+K_inv_rcond = torch.pinverse(K_, rcond=0.1) 
+print('Tensor shape=', K_inv.shape)
+K_inv_rcond =K_inv_rcond.reshape(n_sublevel, n_azimuth, n_theta, n_phase, width, width)
+
+plt.figure()
+plt.plot(K_inv_rcond.flatten())
+
+
 # ### Honeycomb space coverage tests
 
-# In[17]:
+# In[18]:
 
 
 plt.figure(figsize=(20,3))
@@ -201,7 +223,24 @@ for i_theta in range(n_theta):
     plt.imshow(img_dis.numpy()[:, :, ...], cmap='gray')
 
 
-# In[18]:
+# In[19]:
+
+
+plt.figure(figsize=(20,5))
+plt.subplot(1,2,1)
+coefs = torch.zeros((n_sublevel, n_azimuth, n_theta, n_phase))
+coefs[0, 4, 0, 0] = 1
+img_dis = torch.tensordot(K, coefs, dims=4)
+plt.imshow(img_dis.numpy()[:, :, ...], cmap='gray')
+if n_phase >1:
+    plt.subplot(1,2,2)
+    coefs = torch.zeros((n_sublevel, n_azimuth, n_theta, n_phase))
+    coefs[0, 4, 0, 1] = 1
+    img_dis = torch.tensordot(K, coefs, dims=4)
+    plt.imshow(img_dis.numpy()[:, :, ...], cmap='gray')
+
+
+# In[20]:
 
 
 plt.figure(figsize=(20,6))
@@ -213,7 +252,32 @@ for i_az in range(n_azimuth):
     plt.imshow(img_dis.numpy()[:, :, ...], cmap='gray')
 
 
-# In[19]:
+# In[21]:
+
+
+coefs = torch.zeros((n_sublevel, n_azimuth, n_theta, n_phase))
+coefs[:, :, :1, 0] = torch.ones((n_sublevel, n_azimuth, 1))
+img_dis = torch.tensordot(K, coefs, dims=4)
+plt.subplot(1,2,1)
+plt.imshow(img_dis.numpy(), cmap='gray')
+plt.subplot(1,2,2)
+_=plt.plot(img_dis.numpy())
+
+
+# In[22]:
+
+
+if n_phase>1:
+    coefs = torch.zeros((n_sublevel, n_azimuth, n_theta, n_phase))
+    coefs[:, :, :1, 1] = torch.ones((n_sublevel, n_azimuth, 1))
+    img_dis = torch.tensordot(K, coefs, dims=4)
+    plt.subplot(1,2,1)
+    plt.imshow(img_dis.numpy(), cmap='gray')
+    plt.subplot(1,2,2)
+    _=plt.plot(img_dis.numpy())
+
+
+# In[23]:
 
 
 coefs = torch.zeros((n_sublevel, n_azimuth, n_theta, n_phase))
@@ -227,7 +291,7 @@ _=plt.plot(img_dis.numpy())
 
 # ## Images dataset + transforms
 
-# In[20]:
+# In[ ]:
 
 
 if True: #not os.path.exists("image_names.txt"):
@@ -248,7 +312,7 @@ for i in range(len(img_names)):
     img_names[i]=img_names[i][:-1]
 
 
-# In[21]:
+# In[ ]:
 
 
 dir_names = os.listdir('../saccades-data')
@@ -262,7 +326,7 @@ for dir_name in dir_names:
         loc_data_xy[dir_name][name] = np.array(loc_dict['barycenters'])
 
 
-# In[22]:
+# In[ ]:
 
 
 def show_landmarks(image, landmarks):
@@ -274,7 +338,7 @@ def show_landmarks(image, landmarks):
 
 # # Dataset class
 
-# In[23]:
+# In[ ]:
 
 
 class SaccadeLandmarksDataset(Dataset):
@@ -301,10 +365,18 @@ class SaccadeLandmarksDataset(Dataset):
 
     def __getitem__(self, idx, color_mode='rgb'):
 
+        #img_name = os.listdir(self.img_dir)[idx+2]
         name = self.img_names[idx]
         img_path = os.path.join(self.img_dir, name + '.jpeg')
         image = io.imread(img_path)
+        #if self.color_mode == 'hsv':
+        #    image = rgb2hsv(image)
+        #elif self.color_mode == 'lab':
+        #    image = rgb2lab(image)
+        #name = img_name[:-5]
         dir_name = np.random.choice(self.dir_names)
+        # HACK!!
+        #dir_name = self.dir_names[0]
         landmarks = self.loc_dict[dir_name][name]
         landmarks = np.array([landmarks])
         landmarks = landmarks.reshape(-1, 2) #.astype('float').reshape(-1, 2)
@@ -318,7 +390,7 @@ class SaccadeLandmarksDataset(Dataset):
 
 # # Transforms
 
-# In[24]:
+# In[ ]:
 
 
 class RandomSaccadeTo(object):
@@ -338,6 +410,7 @@ class RandomSaccadeTo(object):
             print("landmarks", landmarks, "image", sample['name'])
             sac = (N_Y//2, N_X//2)
         
+        #img_color_sac = saccade_to(image, (N_X//2, N_Y//2), (sac[1], sac[0]))
         image_roll = np.copy(image)
         image_roll=np.roll(image_roll, N_X//2 - sac[1], axis=0)
         if self.zero_fill:
@@ -356,7 +429,7 @@ class RandomSaccadeTo(object):
         return {'image':image_roll, 'pos':sac, 'name':sample['name']}
 
 
-# In[25]:
+# In[ ]:
 
 
 class ToTensor(object):
@@ -373,7 +446,7 @@ class ToTensor(object):
 
 # ### Adapted cropped pyramid (squeezed tensor)
 
-# In[26]:
+# In[ ]:
 
 
 class CroppedPyramid(object):
@@ -403,6 +476,7 @@ class CroppedPyramid(object):
                                                gauss=gauss,
                                                n_levels=self.n_levels,
                                                color_mode=self.color_mode)
+        #img_crop[:,-1,...]-=128 # on residual (!!)
         return{'img_crop':img_crop, 'level_size':level_size, 'pos':sample['pos'],  'name':sample['name']}
         
     
@@ -410,7 +484,7 @@ class CroppedPyramid(object):
 
 # ### LogGaborTransform
 
-# In[27]:
+# In[ ]:
 
 
 class LogGaborTransform(object):
@@ -425,10 +499,12 @@ class LogGaborTransform(object):
         return{'img_gabor':log_gabor_coeffs, 'pos':sample['pos'],  'name':sample['name']}
 
 
+# ### ComplexModulus
+
 # # Compose transforms
 # ### transforms.Compose
 
-# In[28]:
+# In[ ]:
 
 
 composed_transform = transforms.Compose([RandomSaccadeTo(zero_fill=True),
@@ -439,7 +515,7 @@ composed_transform = transforms.Compose([RandomSaccadeTo(zero_fill=True),
                                               color_mode=color_mode)]) #, LogGaborTransform()])
 
 
-# In[29]:
+# In[ ]:
 
 
 saccade_dataset = SaccadeLandmarksDataset(loc_dict=loc_data_xy,
@@ -452,11 +528,17 @@ saccade_dataset = SaccadeLandmarksDataset(loc_dict=loc_data_xy,
 
 # # Iterating through the dataset
 
-# In[30]:
+# In[ ]:
 
 
 # Helper function to show a batch
 
+'''def tensor_hsv_to_rgb(images_batch):
+    n_batch, n_levels = images_batch.shape[:2]
+    for batch in range(n_batch):
+        for level in range(n_levels):
+            im_hsv = 
+'''
 def show_landmarks_batch(sample_batched, color_mode='rgb'):
     """Show image with landmarks for a batch of samples."""
     for level in range(n_levels-1,0,-1):
@@ -469,12 +551,13 @@ def show_landmarks_batch(sample_batched, color_mode='rgb'):
         grid_border_size = 2
 
         grid = utils.make_grid(images_batch)
+        #grid += 128
         plt.imshow(grid.numpy().transpose((1, 2, 0)).clip(0,255).astype('uint8'))
 
         plt.title('Batch from dataloader, level=' + str(level))
 
 
-# In[31]:
+# In[ ]:
 
 
 batch_size = 4
@@ -490,13 +573,13 @@ for i_batch, sample_batched in enumerate(dataloader):
         
 
 
-# In[32]:
+# In[ ]:
 
 
 plt.plot(sample_batched['img_crop'].flatten())
 
 
-# In[33]:
+# In[ ]:
 
 
 full_img_rec = inverse_pyramid(sample_batched['img_crop'], 
@@ -515,175 +598,31 @@ for num_batch in range(batch_size):
         plt.imshow(lab2rgb(im[num_batch,:]))
     else:
         plt.imshow(im[num_batch,:])
-    plt.title(sample_batched['name'])
 
 
-# In[34]:
+# In[ ]:
 
 
 plt.plot(sample_batched['img_crop'][0,:,0,:,:].flatten())
 
+
+# In[ ]:
+
+
 sample_batched['name']
-locpath = '../ALLSTIMULI/' + sample_batched['name'][0] + '.jpeg'
+locpath = '../ALLSTIMULI/' + sample_batched['name'][2] + '.jpeg'
 img_orig = Image.open(locpath) 
 plt.imshow(img_orig)
-# ## STN
-
-# In[35]:
-
-
-class SpatialTransformer(nn.Module):
-    """A spatial transformer plug and play module.
-    
-    Attributes
-    ----------
-    self.localization: nn.Sequential
-        The localization network of the spatial transformer.
-        
-    self.fc_loc: nn.Sequential
-        The regressor for the transformation parameters theta, fully connected
-        layers.
-
-    """
-    def __init__(self: object,
-                 n_levels, 
-                 n_color, 
-                 n_eccentricity, 
-                 n_azimuth, 
-                 n_theta, 
-                 n_phase) -> None:
-        """Class constructor.
-
-        Returns
-        -------
-        None.
-
-        """
-        super(SpatialTransformer, self).__init__()
-        
-        self.n_levels = n_levels
-        self.n_color = n_color
-        self.n_eccentricity = n_eccentricity 
-        self.n_azimuth = n_azimuth 
-        self.n_theta = n_theta
-        self.n_phase = n_phase
-
-        self.localization = STNEncoder(n_levels, 
-                                    n_color, 
-                                    n_eccentricity, 
-                                    n_azimuth, 
-                                    n_theta, 
-                                    n_phase)
-        
-        self.h_size = n_levels * n_azimuth//4 * 128
-
-        self.fc_loc = nn.Sequential(
-            nn.Linear(self.h_size, 128, bias=False),
-            nn.ReLU(True),
-            nn.Linear(128, 2, bias=False)
-        )
-
-        # Initialize the weights/bias with identity transformation
-        self.fc_loc[2].weight.data.zero_()
-        #self.fc_loc[2].bias.data.zero_() #copy_(torch.tensor([1, 0, 0, 0, 1, 0],
-                                         #           dtype=torch.float))
-
-    def stn(self: object, x: torch.Tensor) -> torch.Tensor:
-        """The Spatial Transformer module's forward function, pass through
-        the localization network, predict transformation parameters theta,
-        generate a grid and apply the transformation parameters theta on it
-        and finally sample the grid using an interpolation.
-
-        Parameters
-        ----------
-        x : torch.Tensor
-            The input tensor.
-
-        Returns
-        -------
-        x : torch.Tensor
-            The output (transformed) tensor.
-
-        """
-        #x_ext = x[:,:,:,2:,...]
-        #x_ext = x_ext.permute(0, 2, 5, 6, 1, 3, 4).contiguous()
-        #x_ext = x_ext.view(-1, self.n_color*self.n_theta*self.n_phase, 
-        #               self.n_levels * self.n_eccentricity//2, self.n_azimuth)
-        xs = self.localization(x, relu=True)
-        xs = xs.view(-1, self.h_size)
-        theta = torch.zeros(x.shape[0],2,3) #, requires_grad=True)
-        theta[:,0,0] = 1
-        theta[:,1,1] = 1
-        theta[:,:,2] = self.fc_loc(xs)
-        # resizing theta
-        theta = theta.view(-1, 2, 3)
-        # grid generator => transformation on parameter 
-        
-
-        return theta
-
-
-# In[36]:
-
-
-class STNEncoder(nn.Module):
-    """ Encoder
-    """
-    def __init__(self, n_levels, n_color, n_eccentricity, n_azimuth, n_theta, n_phase):
-        super(STNEncoder, self).__init__()
-        self.n_levels = n_levels
-        self.n_color = n_color
-        self.n_eccentricity = n_eccentricity 
-        self.n_azimuth = n_azimuth 
-        self.n_theta = n_theta
-        self.n_phase = n_phase
-        # Layers
-        self.conv1 = nn.Conv2d(  n_color * n_phase * n_theta, 
-                                 64, 
-                                 kernel_size = (3,3), 
-                                 stride = (2,2),
-                                 padding = (1,1),
-                                 bias=False)        
-        self.conv2 = nn.Conv2d(  64, 
-                                 128, 
-                                 kernel_size = (3,3), 
-                                 stride = (2,2), 
-                                 padding = (1,1),
-                                 bias=False) #,
-            
-    def forward(self, x, relu=False): 
-        x_int = x[:,:,:,:2,...] #eccentricity 
-        x_ext = x[:,:,:,2:,...]
-        x_list = []
-        for x in (x_int, x_ext):
-            x = x.permute(0, 2, 5, 6, 1, 3, 4).contiguous()
-            x = x.view(-1, self.n_color*self.n_theta*self.n_phase, 
-                       self.n_levels * self.n_eccentricity//2, self.n_azimuth)
-            x = self.conv1(x)
-            if relu:
-                x = nn.ReLU()(x) 
-            #print(x.shape)
-
-            x = self.conv2(x)
-            if relu:
-                x = nn.ReLU()(x) 
-            
-            x_list.append(x)
-        x = torch.cat(x_list, 1)
-        #print(x.shape)
-        
-        return x
 
 
 # ### Autoencoder
 
-# In[37]:
+# In[ ]:
 
 
 class AutoEncoder(nn.Module):
-    def __init__(self, n_levels, n_color, n_eccentricity, n_azimuth, n_theta, n_phase, 
-                 out_chan = 32,
-                 encoder=None,  decoder=None):
+    def __init__(self, n_levels, n_color, n_eccentricity, n_azimuth, n_theta, n_phase,
+                 encoder_l=None, decoder_l=None):
         super(AutoEncoder, self).__init__()
         self.n_levels = n_levels
         self.n_color = n_color
@@ -691,70 +630,32 @@ class AutoEncoder(nn.Module):
         self.n_azimuth = n_azimuth 
         self.n_theta = n_theta
         self.n_phase = n_phase
-        self.out_chan = out_chan
         
-        self.transformer_module = SpatialTransformer(n_levels, 
-                                                     n_color, 
-                                                     n_eccentricity, 
-                                                     n_azimuth, 
-                                                     n_theta, 
-                                                     n_phase)
-        
-        if encoder is None:
-            self.encoder = Encoder(n_levels, 
-                                   n_color, 
-                                   n_eccentricity, 
-                                   n_azimuth, 
-                                   n_theta, 
-                                   n_phase)
+        if encoder_l is None:
+            self.encoder_l = Encoder(n_levels, n_color, n_eccentricity, n_azimuth, n_theta, n_phase)
         else:
-            self.encoder = encoder
+            self.encoder_l = encoder_l
         
-        self.h_size = n_levels * n_color * n_eccentricity * n_azimuth  * n_theta * n_phase
-         
-        self.fc_mu = nn.Linear(self.h_size, out_chan, bias=False)
-        with torch.no_grad():
-            self.fc_mu.weight *= 1e-6
-        self.fc_z_inv = nn.Linear(out_chan, self.h_size, bias=False)            
-        with torch.no_grad():
-            self.fc_z_inv.weight *= 1e-6
-            
-        if decoder is None:
-            self.decoder = Decoder(n_levels, n_color, n_eccentricity, n_azimuth, n_theta, n_phase)    
+        self.h_size = n_levels * n_azimuth//4 * 512     
+        
+        if decoder_l is None:              
+            self.decoder_l = Decoder(n_levels, n_color, n_eccentricity, n_azimuth, n_theta, n_phase)    
         else:
-            self.decoder = decoder
+            self.decoder_l = decoder_l
         
-    def forward(self, x, z_in=None, theta_in=None, pre_train = False):   
+    def forward(self, x, z_in=None): #, **kargs):   
         
-        if not pre_train:
-            if theta_in is None: 
-                theta = self.transformer_module.stn(x)
-            else:
-                theta = theta_in
+        code_l, z = self.encoder_l(x)
         
+        if z_in is not None:
+            code_l = z_in        
         
-        if not pre_train:
-            code = self.encoder(x, theta)  
-        else:
-            code = x #.view(-1, self.h_size)
-            
-        mu = self.fc_mu(code.view(-1, self.h_size))
+        return self.decoder_l(code_l), z
 
-        if z_in is None:           
-            z = nn.Softplus()(mu) 
-        else:
-            z = z_in
-        
-        decode = self.fc_z_inv(z) #.view(-1, self.h_size)     
-        
-        if not pre_train:
-            x = self.decoder(decode, theta.clone()) #.clone())
-        else:
-            x = decode.view(-1, self.n_levels, self.n_color, self.n_eccentricity, self.n_azimuth, self.n_theta, self.n_phase)
-        return x, mu, z
-
-
-# In[38]:
+autoenc_VAE = AutoEncoder(n_levels, n_color, n_eccentricity, n_azimuth, n_theta, n_phase, out_chan, 
+                         encoder_l = autoenc.encoder_l,
+                         decoder_l = autoenc.decoder_l)
+# In[ ]:
 
 
 class Encoder(nn.Module):
@@ -768,29 +669,75 @@ class Encoder(nn.Module):
         self.n_azimuth = n_azimuth 
         self.n_theta = n_theta
         self.n_phase = n_phase
-        self.h_size = n_levels * n_color * n_eccentricity * n_azimuth  * n_theta * n_phase
         # Layers
+        self.conv1 = nn.Conv2d(  n_color * n_phase * n_theta, 
+                                 64, 
+                                 kernel_size = (3,3), 
+                                 stride = (2,2),
+                                 padding = (1,1),
+                                 bias=False)     
+        self.conv2 = nn.Conv2d(  64, 
+                                 128, 
+                                 kernel_size = (3,3), 
+                                 stride = (2,2), 
+                                 padding = (1,1),
+                                 bias=False) #,
+        self.conv3 = nn.Conv2d(  128, 
+                                 256, 
+                                 kernel_size = (1,4), 
+                                 stride = (1,1), 
+                                 padding = (0,0)) #,
             
-    def forward(self, x, theta=None): 
-        x_int = x[:,:,:,:2,...] #eccentricity 
-        x_ext = x[:,:,:,2:,...]
-        x_list = []
-        for x in (x_int, x_ext):
-            x = x.permute(0, 2, 5, 6, 1, 3, 4).contiguous()
-            x = x.view(-1, self.n_color*self.n_theta*self.n_phase, 
-                       self.n_levels * self.n_eccentricity//2, self.n_azimuth)
-            if theta is not None:
-                grid = F.affine_grid(theta, x.size())
-                x = F.grid_sample(x, grid)
-            x_list.append(x)
-        x = torch.cat(x_list, 1)
-        #x = x.view(-1, self.h_size)
-        #print(x.shape)
-        
-        return x
+            
+    def forward(self, x): 
+        x = x.permute(0, 2, 5, 6, 1, 3, 4).contiguous()
+        x = x.view(-1, self.n_color*self.n_theta*self.n_phase, self.n_levels * self.n_eccentricity, self.n_azimuth)
+        z = []
+        x = self.conv1(x)
+        z += [x]
+        x = self.conv2(x)
+        z += [x]   
+        x = self.conv3(x)
+        z += [x] 
+        return x, z
 
 
-# In[39]:
+# In[ ]:
+
+
+out_chan = 30
+enc = Encoder(n_levels - 1, n_color, n_eccentricity, n_azimuth, n_theta, n_phase)
+dataloader = DataLoader(saccade_dataset, batch_size=batch_size,
+                        shuffle=True, num_workers=0)
+data = next(iter(dataloader))  
+log_gabor_coefs = log_gabor_transform(data['img_crop'], K)
+autoenc_inputs = log_gabor_coefs[:,:n_levels-1,...].clone()
+#autoenc_inputs /=  256 # !! Normalization
+code, z = enc(autoenc_inputs)
+
+
+# In[ ]:
+
+
+plt.plot(z[0][0,:].detach().numpy().flatten())
+plt.plot(z[1][0,:].detach().numpy().flatten())
+plt.plot(code[0,:].detach().numpy().flatten())
+
+
+# In[ ]:
+
+
+z[0].shape, z[1].shape, z[2].shape
+
+
+# In[ ]:
+
+
+print(code.shape)
+del enc
+
+
+# In[ ]:
 
 
 class Decoder(nn.Module):
@@ -805,29 +752,55 @@ class Decoder(nn.Module):
         self.n_theta = n_theta
         self.n_phase = n_phase  
         
-        self.h_size = n_levels * n_color * n_eccentricity * n_azimuth  * n_theta * n_phase
+        self.unconv3 = nn.ConvTranspose2d(  256, 
+                                 128, 
+                                 kernel_size = (1,4), 
+                                 stride = (1,1), 
+                                 padding = (0,0),
+                                 output_padding=(0,0)) #,
+        
+        self.unconv2 = nn.ConvTranspose2d(  128, 
+                                 64, 
+                                 kernel_size = (3,3), 
+                                 stride = (2,2), 
+                                 padding = (1,1),
+                                 output_padding=(1,1)) 
+        
+        self.unconv1 = nn.ConvTranspose2d(64, 
+                                 n_color * n_theta * n_phase, 
+                                 kernel_size = (3,3), 
+                                 stride = (2,2), 
+                                 padding = (1,1),
+                                 output_padding=(1,1),
+                                 bias=False)
+        
             
-    def forward(self, x, theta=None): 
-        x = x.view(-1, self.n_color*self.n_theta*self.n_phase, 
-                       self.n_levels * self.n_eccentricity, self.n_azimuth)
-        lim = self.n_levels * self.n_eccentricity // 2
-        x_int = x[:,:,:lim,...]
-        x_ext = x[:,:,lim:,...]
-        x_list = []
-        for x in (x_int, x_ext):
-            if theta is not None:
-                theta_inv = theta
-                theta_inv[:,:,2] = - theta[:,:,2].detach()
-                grid = F.affine_grid(theta_inv, x.size())
-                x = F.grid_sample(x, grid)
-            x = x.view(-1, self.n_color, self.n_theta, self.n_phase, self.n_levels, self.n_eccentricity//2, self.n_azimuth)
-            x = x.permute(0, 4, 1, 5, 6, 2, 3).contiguous()
-            x_list.append(x)
-        x = torch.cat(x_list, 3)      
+    def forward(self, x): # , indices1, indices2):           
+        x = self.unconv3(x)
+        x = self.unconv2(x)
+        x = self.unconv1(x)
+        x = x.view(-1, self.n_color, self.n_theta, self.n_phase, self.n_levels, self.n_eccentricity, self.n_azimuth)
+        x = x.permute(0, 4, 1, 5, 6, 2, 3).contiguous()
         return x
 
 
-# In[40]:
+# #### Tests
+
+# In[ ]:
+
+
+dec = Decoder(n_levels - 1, n_color, n_eccentricity, n_azimuth, n_theta, n_phase)
+dec_out = dec(code) #, indices1, indices2)
+dec_out.shape
+
+
+# In[ ]:
+
+
+del dec
+
+
+# In[ ]:
 
 
 class InverseLogGaborMapper(nn.Module):
@@ -843,16 +816,17 @@ class InverseLogGaborMapper(nn.Module):
 
 # ### Loss functions
 
-# In[41]:
+# In[ ]:
 
 
-def mc_kl_div(z, mu):
-    p = torch.distributions.Gamma(torch.ones_like(mu), torch.ones_like(mu))
-    log_prior_sample = p.log_prob(z)
-    return -log_prior_sample.sum()
+def lasso_loss(z, LAMBDA):
+    loss = 0
+    for x in z:
+        loss += LAMBDA * torch.abs(x).sum()
+    return loss
 
 
-# In[42]:
+# In[ ]:
 
 
 def minus_log_likelihood(autoenc_outputs, autoenc_inputs):
@@ -861,72 +835,77 @@ def minus_log_likelihood(autoenc_outputs, autoenc_inputs):
     dist = torch.distributions.Normal(autoenc_outputs, scale)
     log_likelihood = dist.log_prob(autoenc_inputs)
     return -log_likelihood.sum()
-    
 
 
 # ### Model and learning params
 
-# In[58]:
+# In[ ]:
 
 
-batch_size = 15
-autoenc_lr = 1e-4 #3e-10
-invLG_lr = 1e-5
+batch_size = 50
+autoenc_lr = 1e-4
+invLG_lr = 3e-5
 
-n_epoch = 10000
+n_epoch = 6000
 recording_steps = 10
 
 
-# In[59]:
+# In[ ]:
 
 
-autoenc_VAE = AutoEncoder(n_levels-1, n_color, n_eccentricity, n_azimuth, n_theta, 
-                          n_phase, out_chan=out_chan)
-
+autoenc = AutoEncoder(n_levels-1, n_color, n_eccentricity, n_azimuth, n_theta, n_phase)
 invLGmap = InverseLogGaborMapper()
 
 
-# In[60]:
+# In[ ]:
 
 
-autoenc_VAE_optimizer = optim.Adam(autoenc_VAE.parameters(), lr = autoenc_lr)
+autoenc_optimizer = optim.Adam(autoenc.parameters(), lr = autoenc_lr)
         
 invLG_optimizer = optim.Adam(invLGmap.parameters(), lr = invLG_lr)
-#invLG_optimizer = optim.SGD(invLGmap.parameters(), lr = invLG_lr)
-criterion = nn.MSELoss(reduction='sum')
+
+criterion = nn.MSELoss() #loss = criterion(outputs, inputs)
 
 
-# In[61]:
+# In[ ]:
 
 
 dataloader = DataLoader(saccade_dataset, batch_size=batch_size,
                         shuffle=True, num_workers=0)
 
 
-# In[62]:
+# In[ ]:
 
 
-KL_loss_list = []
+LASSO_loss_list = []
 MSE_loss_list = []
 invLG_loss_list = []
 
 
-# In[63]:
+# In[ ]:
 
 
 script_name
 
 
-# In[64]:
+# In[ ]:
 
 
 PATH = script_name + '_invLGmap.pt'
+os.path.exists(PATH)
+
+
+# In[ ]:
+
+
+PATH = script_name + '_invLGmap.pt'
+LAMBDA_REF = 30
 
 if not os.path.exists(PATH):    
 
     for epoch in range(n_epoch):  # loop over the dataset multiple times
 
-        KL_running_loss = 0.0
+        LASSO_running_loss = 0.0
         MSE_running_loss = 0.0
         invLG_running_loss = 0.0
         for step, data in enumerate(dataloader):
@@ -939,20 +918,19 @@ if not os.path.exists(PATH):
             autoenc_inputs = log_gabor_coefs[:,:n_levels-1,...].clone()
             if color_mode == 'rgb':
                 autoenc_inputs /=  256 # !! Normalization
-                
-            if epoch < 10:
-                pre_train = True
-            else:
-                pre_train = False            
-            autoenc_outputs, mu, z = autoenc_VAE(autoenc_inputs, pre_train = pre_train)
-            autoenc_VAE_optimizer.zero_grad()
-            #MSE_loss = 0.5 * criterion(autoenc_outputs, autoenc_inputs)
+            
+            autoenc_outputs, z = autoenc(autoenc_inputs)
+            autoenc_optimizer.zero_grad()
             MSE_loss = minus_log_likelihood(autoenc_outputs, autoenc_inputs)
-            #KL_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-            KL_loss = mc_kl_div(z, mu)
-            autoenc_VAE_loss = MSE_loss + KL_loss
-            autoenc_VAE_loss.backward()
-            autoenc_VAE_optimizer.step()   
+            #0.5 * nn.MSELoss()(autoenc_outputs, autoenc_inputs)
+            if False: #epoch < 1000:
+                LAMBDA = (epoch / 1000)**1 * LAMBDA_REF 
+            else:
+                LAMBDA = LAMBDA_REF
+            LASSO_loss = lasso_loss(z, LAMBDA)
+            autoenc_loss = LASSO_loss +  MSE_loss 
+            autoenc_loss.backward()
+            autoenc_optimizer.step()  
 
             invLG_optimizer.zero_grad()
             log_gabor_coefs_rec = autoenc_outputs.detach().view(batch_size_eff*(n_levels-1)*n_color,
@@ -969,141 +947,112 @@ if not os.path.exists(PATH):
             invLG_optimizer.step()
 
             # print statistics
-            KL_running_loss += KL_loss.item()
+            LASSO_running_loss += LASSO_loss.item()
             MSE_running_loss += MSE_loss.item()
             invLG_running_loss += invLG_loss.item()
             if (step+1)%recording_steps == 0 :    # print every n_steps mini-batches
+                print(f'LAMBDA : {LAMBDA}')
                 print('[%d, %5d] losses: %.3f, %.3f, %.3f' %
                       (epoch + 1, 
                        step + 1, 
-                       KL_running_loss/recording_steps, 
+                       LASSO_running_loss/recording_steps, 
                        MSE_running_loss/recording_steps,
                        invLG_running_loss/recording_steps))
                 #.append
-                KL_loss_list.append(KL_running_loss/recording_steps)
+                LASSO_loss_list.append(LASSO_running_loss/recording_steps)
                 MSE_loss_list.append(MSE_running_loss/recording_steps)
                 invLG_loss_list.append(invLG_running_loss/recording_steps)
-                KL_running_loss = 0.0
+                LASSO_running_loss = 0.0
                 MSE_running_loss = 0.0
                 invLG_running_loss = 0.0
-                
-        if epoch % 100 == 0 :
-            PATH = script_name + '_KL_loss_list.npy'
-            np.save(PATH, np.array(KL_loss_list))    
-            PATH = script_name + '_MSE_loss_list.npy'
-            np.save(PATH, np.array(MSE_loss_list))    
-            PATH = script_name + '_invLG_loss_list.npy'
-            np.save(PATH, np.array(invLG_loss_list))   
-            PATH = script_name + '_invLGmap.pt'
-            torch.save(invLGmap, PATH)
-            PATH = script_name + '_autoenc_VAE.pt'
-            torch.save(autoenc_VAE, PATH)
-            print('Model saved')
 
     print('Finished Training ')
     
-    
+    if n_epoch !=0 :
+        PATH = script_name + '_LASSO_loss_list.npy'
+        np.save(PATH, np.array(LASSO_loss_list))    
+        PATH = script_name + '_MSE_loss_list.npy'
+        np.save(PATH, np.array(MSE_loss_list))    
+        PATH = script_name + '_invLG_loss_list.npy'
+        np.save(PATH, np.array(invLG_loss_list))   
+        PATH = script_name + '_invLGmap.pt'
+        torch.save(invLGmap, PATH)
+        PATH = script_name + '_autoenc.pt'
+        torch.save(autoenc, PATH)
+        #PATH = script_name + '_autoenc_VAE.pt'
+        #torch.save(autoenc_VAE, PATH)
+        print('Model saved')
 
 else:
-    PATH = script_name + '_KL_loss_list.npy'
-    KL_loss_list = np.load(PATH).tolist()    
+    PATH = script_name + '_LASSO_loss_list.npy'
+    LASSO_loss_list = np.load(PATH).tolist()    
     PATH = script_name + '_MSE_loss_list.npy'
     MSE_loss_list = np.load(PATH).tolist()    
     PATH = script_name + '_invLG_loss_list.npy'
     invLG_loss_list = np.load(PATH).tolist()
     PATH = script_name + '_invLGmap.pt'
     invLGmap = torch.load(PATH)
-    PATH = script_name + '_autoenc_VAE.pt'
-    autoenc_VAE = torch.load(PATH)
+    PATH = script_name + '_autoenc.pt'
+    autoenc = torch.load(PATH)
+    #PATH = script_name + '_autoenc_VAE.pt'
+    #autoenc_VAE = torch.load(PATH)
     print('Model loaded')
 
-#code, indices1, indices2 = autoenc_VAE.encoder(autoenc_inputs)  indices1.shape, indices2.shape, n_levels * n_eccentricity * n_azimuth, torch.max(indices1)
-# In[65]:
+
+# In[ ]:
 
 
-if True :
-    PATH = script_name + '_KL_loss_list.npy'
-    np.save(PATH, np.array(KL_loss_list))    
+if False :
+    PATH = script_name + '_LASSO_loss_list.npy'
+    np.save(PATH, np.array(LASSO_loss_list))    
     PATH = script_name + '_MSE_loss_list.npy'
     np.save(PATH, np.array(MSE_loss_list))    
     PATH = script_name + '_invLG_loss_list.npy'
     np.save(PATH, np.array(invLG_loss_list))   
     PATH = script_name + '_invLGmap.pt'
     torch.save(invLGmap, PATH)
-    PATH = script_name + '_autoenc_VAE.pt'
-    torch.save(autoenc_VAE, PATH)
+    PATH = script_name + '_autoenc.pt'
+    torch.save(autoenc, PATH)
+    #PATH = script_name + '_autoenc_VAE.pt'
+    #torch.save(autoenc_VAE, PATH)
     print('Model saved')
 
 
-# In[66]:
+# In[ ]:
 
 
 import seaborn
 seaborn.set()
-plt.figure(figsize=(15,12))
+plt.figure(figsize=(20,12))
 plt.plot(np.array(MSE_loss_list) , label = 'MSE')
-plt.plot(np.array(KL_loss_list)*10 , label = 'KL')
-plt.plot(np.array(invLG_loss_list), label = 'invLGMap')
+plt.plot(np.array(LASSO_loss_list) , label = 'LASSO')
+plt.plot(np.array(invLG_loss_list) * 100000, label = 'invLGMap')
 #plt.ylim(0,500)
 plt.title('LOSS')
 plt.xlabel('# batch')
 plt.legend()
-plt.ylim(0,30000000)
 
 
 # ## Encoding and decoding
 
-# In[67]:
+# In[ ]:
 
 
 seaborn.reset_orig()
 
 
-# In[68]:
-
-
-composed_transform = transforms.Compose([RandomSaccadeTo(zero_fill=True),
-                               ToTensor()]) #, LogGaborTransform()])
-
-
-# In[69]:
-
-
-saccade_dataset = SaccadeLandmarksDataset(loc_dict=loc_data_xy,
-                                          img_dir='../ALLSTIMULI/',
-                                          img_names=img_names,
-                                          dir_names =  dir_names,
-                                          transform=composed_transform,
-                                          color_mode=color_mode)
-
-
-# In[70]:
-
-
-batch_size = 1
-dataloader = DataLoader(saccade_dataset, batch_size=batch_size,
-                        shuffle=True, num_workers=0)
-
-
-# In[71]:
-
-
-data = next(iter(dataloader))
-
-
-# In[116]:
+# In[ ]:
 
 
 img_name = 'i1198772915'
 if True:
-    #locpath = '../ALLSTIMULI/' + img_names[900] + '.jpeg'
-    #locpath = '../ALLSTIMULI/' + data['name'][1] + '.jpeg'
+    locpath = '../ALLSTIMULI/' + img_names[10] + '.jpeg'
+    #locpath = '../ALLSTIMULI/' + data['name'][3] + '.jpeg'
     locpath = '../ALLSTIMULI/' + img_name + '.jpeg'
     img_orig = Image.open(locpath) 
-    #img_orig = data['image'].permute(0,2,3,1).numpy().clip(0,255).astype('uint8')[0,...]
 else:
     locpath= '../data/professional_test/test/namphuong-van-260.png'
-    #locpath= '../data/professional_test/test/shannon-kelley-108053.png'
+    locpath= '../data/professional_test/test/shannon-kelley-108053.png'
     img_orig = Image.open(locpath)
     #img_orig = img_orig.resize((1024,768)) 
 
@@ -1118,13 +1067,13 @@ else:
     plt.imshow(img_orig)
 
 
-# In[117]:
+# In[ ]:
 
 
 img_tens = torch.Tensor(np.array(img_orig)[None,...]).permute(0,3,1,2)
 
 
-# In[118]:
+# In[ ]:
 
 
 img_crop = cropped_pyramid(img_tens, 
@@ -1135,20 +1084,14 @@ img_crop = cropped_pyramid(img_tens,
                            n_levels=n_levels)[0]
 
 
-# In[119]:
+# In[ ]:
 
 
 log_gabor_coeffs = log_gabor_transform(img_crop, K)
 log_gabor_coeffs.shape
 
 
-# In[120]:
-
-
-full_img_rec.shape
-
-
-# In[121]:
+# In[ ]:
 
 
 autoenc_inputs = log_gabor_coeffs[:,:n_levels-1,...].clone()
@@ -1156,61 +1099,53 @@ autoenc_inputs = log_gabor_coeffs[:,:n_levels-1,...].clone()
 if color_mode == 'rgb':
     autoenc_inputs /= 256
 
-log_gabor_coeffs_rec, mu, z = autoenc_VAE( autoenc_inputs )   
+log_gabor_coeffs_rec,  z = autoenc( autoenc_inputs )   
 log_gabor_coeffs_rec = log_gabor_coeffs_rec.view(1, (n_levels-1), -1) 
 if color_mode == 'rgb':
     log_gabor_coeffs_rec *= 256
 
 
-# In[122]:
+# In[ ]:
 
 
-z_img = z
+z_img = z[2]
+z[0].shape
 
 
-# In[123]:
+# In[ ]:
 
 
-plt.plot(z.detach().numpy().flatten(),'.')
-
-
-# In[124]:
-
-
-plt.hist(mu.detach().numpy().flatten(),20)
 plt.figure()
-_ = plt.hist(z_img.detach().numpy().flatten(),200)
+plt.plot(z[0].detach().numpy().flatten(),'.')
+plt.title("all")
+
+plt.figure()
+plt.plot(z[1].detach().numpy().flatten(),'.')
+plt.title("all")
+
+plt.figure()
+plt.plot(z[2].detach().numpy().flatten(),'.')
+plt.title("all")
 
 
-# In[125]:
+# In[ ]:
 
 
-np.argmax(z.detach().numpy().flatten())
+_ = plt.hist(z[0].detach().numpy().flatten(),70)
+plt.figure()
+_ = plt.hist(z[1].detach().numpy().flatten(),70)
+plt.figure()
+_ = plt.hist(z[2].detach().numpy().flatten(),70)
 
 
-# In[126]:
-
-
-autoenc_inputs.shape
-
-
-# In[127]:
-
-
-theta = autoenc_VAE.transformer_module.stn(autoenc_inputs)
-
-
-# In[128]:
-
-
-# In[129]:
+# In[ ]:
 
 
 log_gabor_coeffs_rec_cat = torch.cat((log_gabor_coeffs_rec.view(1, n_levels-1, n_color, n_eccentricity, n_azimuth, n_theta, n_phase), 
                                       log_gabor_coeffs[0:,-1:,...]), 1)
 
 
-# In[130]:
+# In[ ]:
 
 
 plt.figure(figsize=(20,7))
@@ -1227,13 +1162,19 @@ for level in range(n_levels-1):
     plt.legend()
 
 
-# In[131]:
+# In[ ]:
+
+
+
+
+
+# In[ ]:
 
 
 _=plt.hist(log_gabor_coeffs.numpy().flatten(),100)
 
 
-# In[132]:
+# In[ ]:
 
 
 _=plt.hist(img_crop.numpy().flatten(),100)
@@ -1241,7 +1182,7 @@ _=plt.hist(img_crop.numpy().flatten(),100)
 
 # ## Reconstruction tests
 
-# In[133]:
+# In[ ]:
 
 
 K_inv = get_K_inv(K, width=width, n_sublevel = n_sublevel, n_azimuth = n_azimuth, n_theta = n_theta, n_phase = n_phase)
@@ -1250,14 +1191,14 @@ img_rec[:,-1,...] = img_crop[:,-1,...]
 axs = tensor_pyramid_display(img_rec.clone()) 
 
 
-# In[134]:
+# In[ ]:
 
 
 inv_LGmap_input = log_gabor_coeffs_rec.view((n_levels-1) * n_color, n_eccentricity * n_azimuth * n_theta * n_phase)
 inv_LGmap_input.shape
 
 
-# In[135]:
+# In[ ]:
 
 
 img_rec_rec = invLGmap(inv_LGmap_input) #inv_LGmap_input)
@@ -1269,7 +1210,7 @@ axs = tensor_pyramid_display(img_rec_rec)
 
 # ### Test de invLGmap uniquement sur log gabor coeffs originaux
 
-# In[136]:
+# In[ ]:
 
 
 img_rec_test = invLGmap(log_gabor_coeffs.view(n_levels * n_color, n_eccentricity * n_azimuth * n_theta * n_phase)) #inv_LGmap_input)
@@ -1280,7 +1221,7 @@ axs = tensor_pyramid_display(img_rec_test)
 
 # ### Test des coeffs reconstruits avec differentes valeurs de K_inv 
 
-# In[137]:
+# In[ ]:
 
 
 img_rec_rec_test = []
@@ -1306,7 +1247,7 @@ for i, rcond in enumerate((0.1, 0.03, 0.01, 0.003, 0.001, 0)):
 
 # ### Full image reconstruction
 
-# In[138]:
+# In[ ]:
 
 
 #img_crop = cropped_pyramid(img_tens, color=color, do_mask=do_mask, verbose=True, n_levels=n_levels)[0]
@@ -1334,10 +1275,20 @@ full_img_rec_rec = full_img_rec_rec.detach().permute(0,2,3,1).numpy()
 #ax = tensor_image_cmp(full_img_rec, full_img_rec_rec)
 plt.figure(figsize=(20,15))
 image_show(full_img_rec_rec[0,:], color_mode)
-plt.title('RECONSTRUCTED FROM AUTO-ENCODER, #params = ' + str(out_chan), fontsize=20)
+plt.title('RECONSTRUCTED FROM AUTO-ENCODER, #params = ' + str(np.prod(code[0,...].shape)), fontsize=20)
+
+'''
+img_rec_rec_test[3][:,-1,...]= img_crop[:,-1,...]
+full_img_rec_rec_test = inverse_pyramid(img_rec_rec_test[3], color=color, gauss=gauss, n_levels=n_levels)
+full_img_rec_rec_test = full_img_rec_rec_test.detach().permute(0,2,3,1).numpy().clip(0,255).astype('uint8')
+#ax = tensor_image_cmp(full_img_rec, full_img_rec_rec)
+plt.figure(figsize=(20,15))
+plt.imshow(full_img_rec_rec_test[0,:])
+plt.title('RECONSTRUCTED FROM AUTOENCODER OUTPUTS AND REGULARIZED INVERSE MAP')
+'''
 
 
-# In[139]:
+# In[ ]:
 
 
 #img_crop = cropped_pyramid(img_tens, color=color, do_mask=do_mask, verbose=True, n_levels=n_levels)[0]
@@ -1373,32 +1324,45 @@ full_img_rec_rec = full_img_rec_rec.detach().permute(0,2,3,1).numpy()
 #ax = tensor_image_cmp(full_img_rec, full_img_rec_rec)
 image_show(full_img_rec_rec[0,N_X//2-128:N_X//2+128,
                             N_Y//2-128:N_Y//2+128,:], color_mode)
-plt.title('RECONSTRUCTED FROM AUTO-ENCODER, #params = ' + str(out_chan), fontsize=20)
+plt.title('RECONSTRUCTED FROM AUTO-ENCODER, #params = ' + str(np.prod(code[0,...].shape)), fontsize=20)
 
-if False:
+'''
+img_rec_rec_test[3][:,-1,...]= img_crop[:,-1,...]
+full_img_rec_rec_test = inverse_pyramid(img_rec_rec_test[3], color=color, gauss=gauss, n_levels=n_levels)
+full_img_rec_rec_test = full_img_rec_rec_test.detach().permute(0,2,3,1).numpy().clip(0,255).astype('uint8')
+#ax = tensor_image_cmp(full_img_rec, full_img_rec_rec)
+plt.figure(figsize=(20,15))
+plt.imshow(full_img_rec_rec_test[0,:])
+plt.title('RECONSTRUCTED FROM AUTOENCODER OUTPUTS AND REGULARIZED INVERSE MAP')
+'''
+if True:
     plt.savefig(script_name+'.png', bbox_inches='tight')
 
 
-# In[140]:
+# In[ ]:
 
 
 img.shape
 
 
-# In[141]:
+# ## Rotation
+
+# In[ ]:
 
 
 log_gabor_coeffs_roll = log_gabor_coeffs_rec.clone()
 log_gabor_coeffs_roll = log_gabor_coeffs_roll.view(1,n_levels-1, n_color, n_eccentricity, n_azimuth, n_theta, n_phase)
 #log_gabor_coeffs_roll[:,:n_levels-1,...]= log_gabor_coeffs_roll[:,:n_levels-1,...].roll(-4,4) #.roll(4, 4)
-log_gabor_coeffs_roll= log_gabor_coeffs_roll.roll(1,4) #.roll(4, 4)
 log_gabor_coeffs_roll= log_gabor_coeffs_roll.roll(1,1) #.roll(4, 4)
+log_gabor_coeffs_roll = torch.cat((log_gabor_coeffs_roll, log_gabor_coeffs[:,n_levels-1,...].unsqueeze(1)), 1)
+log_gabor_coeffs_roll= log_gabor_coeffs_roll.roll(1,4) #.roll(4, 4)
+
 
 #log_gabor_coeffs_roll= log_gabor_coeffs_roll.roll(-1,5) #.roll(4, 4)
-inv_LGmap_input = log_gabor_coeffs_roll.view((n_levels-1) * n_color, n_eccentricity * n_azimuth * n_theta * n_phase)
+inv_LGmap_input = log_gabor_coeffs_roll.view(n_levels * n_color, n_eccentricity * n_azimuth * n_theta * n_phase)
 img_rec_rec_roll = invLGmap(inv_LGmap_input) #inv_LGmap_input)
-img_rec_rec_roll = img_rec_rec_roll.view(1, n_levels-1, n_color, width, width).detach()
-img_rec_rec_roll = torch.cat((img_rec_rec_roll, img_crop[0:,-1:,...]), 1)
+img_rec_rec_roll = img_rec_rec_roll.view(1, n_levels, n_color, width, width).detach()
+#img_rec_rec_roll = torch.cat((img_rec_rec_roll, img_crop[0:,-1:,...]), 1)
 
 full_img_rec_rec_roll = inverse_pyramid(img_rec_rec_roll, color=color, gauss=gauss, n_levels=n_levels)
 full_img_rec_rec_roll = full_img_rec_rec_roll.detach().permute(0,2,3,1).numpy()
@@ -1411,29 +1375,49 @@ plt.title('ROTATION/ZOOM FROM COMPRESSED SENSING LAYER')
 #log_gabor_coeffs_roll[:,:n_levels-1,...] = log_gabor_coeffs_roll[:,:n_levels-1,...].roll(1,1) #.roll(4, 4)
 
 
-# In[142]:
+# In[ ]:
 
 
-log_gabor_coeffs_rec, mu, z = autoenc_VAE( autoenc_inputs)   
+img_res_gray = rgb2lab((np.ones((32,32,3))*128).astype('uint8'))
+img_res_gray = torch.DoubleTensor(img_res_gray).permute(2,0,1).unsqueeze(0).unsqueeze(0)
 
 
-# In[143]:
+# In[ ]:
 
 
-mu
+p = torch.distributions.Gamma(torch.ones_like(z_img), 3 * torch.ones_like(z_img))
+z_in =  p.rsample() - p.rsample()
+plt.figure()
+_ = plt.hist(z_in.detach().numpy().flatten(),70)
+log_gabor_coeffs_rec_test, z = autoenc(autoenc_inputs[:1,:n_levels-1,...], z_in=z_in)  
+inv_LGmap_input = log_gabor_coeffs_rec_test.view((n_levels-1) * n_color, n_eccentricity * n_azimuth * n_theta * n_phase)
+img_rec_rec_test = invLGmap(inv_LGmap_input) #inv_LGmap_input)
+img_rec_rec_test = img_rec_rec_test.view(n_levels-1, n_color, width, width)
+img_rec_rec_test = torch.cat((img_rec_rec_test.unsqueeze(0), img_res_gray), 1)
+full_img_rec_rec_test = inverse_pyramid(img_rec_rec_test, color=color, gauss=gauss, n_levels=n_levels)
+full_img_rec_rec_test = full_img_rec_rec_test.detach().permute(0,2,3,1).numpy()
+#.permute(0,2,3,1).detach().numpy().squeeze()
+#image_show(full_img_rec_rec_test[0,16:48,16:48,:], color_mode=color_mode)
+plt.figure(figsize=(20,15))
+image_show(full_img_rec_rec_test.squeeze(), color_mode=color_mode)
+#plt.title(f'{level}, {lat_feat}')
 
 
-# In[144]:
+# In[ ]:
 
 
-#z_in = z #torch.randn_like(mu) 
-p = torch.distributions.Gamma(torch.ones_like(mu), torch.ones_like(mu))
-plt.figure(figsize=(10,10))
-z_in = p.rsample() 
-#z_in = torch.zeros_like(z_img)
-#z_in[0,557] = 1000
-#z_in[0,590] = 300
-log_gabor_coeffs_rec_test, mu, z = autoenc_VAE( autoenc_inputs, z_in=z_in )   
+
+autoenc_inputs.shape
+
+
+# ## Opposite sign (negative)
+
+# In[ ]:
+
+
+log_gabor_coeffs_rec, z = autoenc( autoenc_inputs)   
+z_in = - z[2] #torch.randn_like(mu) 
+log_gabor_coeffs_rec_test, z = autoenc( autoenc_inputs, z_in=z_in )   
 inv_LGmap_input = log_gabor_coeffs_rec_test.view((n_levels-1) * n_color, n_eccentricity * n_azimuth * n_theta * n_phase)
 img_rec_rec_test = invLGmap(inv_LGmap_input) #inv_LGmap_input)
 img_rec_rec_test = img_rec_rec_test.view(1, n_levels-1, n_color, width, width).detach()
@@ -1443,249 +1427,247 @@ full_img_rec_rec_test = full_img_rec_rec_test.detach().permute(0,2,3,1).numpy()
 plt.figure(figsize=(20,15))
 image_show(full_img_rec_rec_test[0,:], color_mode)
 
-z_sample = z
-# In[145]:
 
+# In[ ]:
 
-img_res_gray = rgb2lab((np.ones((32,32,3))*128).astype('uint8'))
-img_res_gray = torch.FloatTensor(img_res_gray).permute(2,0,1).unsqueeze(0).unsqueeze(0)
 
-
-# In[146]:
-
-
-img_res_green = (np.ones((32,32,3))*128).astype('uint8')
-img_res_green[:,:,0]= 112 #.astype('uint8'))
-img_res_green[:,:,2]= 64 #.astype('uint8'))
-img_res_green = rgb2lab(img_res_green)
-img_res_green = torch.FloatTensor(img_res_green).permute(2,0,1).unsqueeze(0).unsqueeze(0)
-
-
-# In[147]:
-
-
-z_in = z_img #z_sample * 2 #torch.randn_like(mu) * 2
-log_gabor_coeffs_rec_test, mu, z = autoenc_VAE( autoenc_inputs, z_in=z_in )   
-inv_LGmap_input = log_gabor_coeffs_rec_test.view((n_levels-1) * n_color, n_eccentricity * n_azimuth * n_theta * n_phase)
-img_rec_rec_test = invLGmap(inv_LGmap_input) #inv_LGmap_input)
-img_rec_rec_test = img_rec_rec_test.view(1, n_levels-1, n_color, width, width).detach()
-img_rec_rec_test = torch.cat((img_rec_rec_test, img_res_gray), 1)
-full_img_rec_rec_test = inverse_pyramid(img_rec_rec_test, color=color, gauss=gauss, n_levels=n_levels)
-full_img_rec_rec_test = full_img_rec_rec_test.detach().permute(0,2,3,1).numpy()
-plt.figure(figsize=(20,15))
-image_show(full_img_rec_rec_test[0,:], color_mode)
-
-
-# In[148]:
-
-
-theta_in = torch.zeros(1,2,3)
-theta_in[0,0,0] = 1
-theta_in[0,1,1] = 1
-
-
-# In[149]:
-
-
-theta_in
-
-
-# In[150]:
-
-
-if True:
-    plt.figure(figsize=(20,600))
-    #plt.figure(figsize=(20,150))
-    lat_shift = 200
-    for lat_feat in range(lat_shift, lat_shift+100):
-        plt.subplot(50,2,lat_feat+1-lat_shift)
-        #plt.subplot(25,4,lat_feat+1-lat_shift)
-        z_in = torch.zeros_like(z_img)
-        z_in[0,lat_feat] = 1000
-        log_gabor_coeffs_rec_test, mu, z = autoenc_VAE(autoenc_inputs, 
-                                                               z_in=z_in,
-                                                               theta_in = theta_in)   
-        inv_LGmap_input = log_gabor_coeffs_rec_test.view((n_levels-1) * n_color, n_eccentricity * n_azimuth * n_theta * n_phase)
-        img_rec_rec_test = invLGmap(inv_LGmap_input) #inv_LGmap_input)
-        img_rec_rec_test = img_rec_rec_test.view(1, n_levels-1, n_color, width, width).detach()
-        img_rec_rec_test = torch.cat((img_rec_rec_test, img_res_gray), 1)
-        full_img_rec_rec_test = inverse_pyramid(img_rec_rec_test, color=color, gauss=gauss, n_levels=n_levels)
-        full_img_rec_rec_test = full_img_rec_rec_test.detach().permute(0,2,3,1).numpy()
-        image_show(full_img_rec_rec_test[0,N_X//2-128:N_X//2+128,
-                                N_Y//2-128:N_Y//2+128,:], color_mode)
-        plt.title(lat_feat)
-
-
-# In[151]:
-
-
-plt.figure(figsize=(10,10))
-z_in = torch.zeros_like(z_img)
-#z_in[0,197] = 1000 # Patchwork of faces
-#z_in[0,182] = 1000 # Fenêtres
-#z_in[0,184] = 1000 # Dôme
-#z_in[0,262] = 1000 # Perspective
-#z_in[0,264] = 1000 # Face
-
-log_gabor_coeffs_rec_test, mu, z = autoenc_VAE( autoenc_inputs, 
-                                                       z_in=z_in ,
-                                                        theta_in = theta_in)   
-inv_LGmap_input = log_gabor_coeffs_rec_test.view((n_levels-1) * n_color, n_eccentricity * n_azimuth * n_theta * n_phase)
-img_rec_rec_test = invLGmap(inv_LGmap_input) #inv_LGmap_input)
-img_rec_rec_test = img_rec_rec_test.view(1, n_levels-1, n_color, width, width).detach()
-img_rec_rec_test = torch.cat((img_rec_rec_test, img_res_gray), 1)
-full_img_rec_rec_test = inverse_pyramid(img_rec_rec_test, color=color, gauss=gauss, n_levels=n_levels)
-full_img_rec_rec_test = full_img_rec_rec_test.detach().permute(0,2,3,1).numpy()
-image_show(full_img_rec_rec_test[0,N_X//2-128:N_X//2+128,
-                            N_Y//2-128:N_Y//2+128,:], color_mode)
-#image_show(full_img_rec_rec_test[0,...], color_mode)
-
-
-# In[152]:
-
-
-plt.figure(figsize=(10,10))
-z_in = torch.zeros_like(z_img)
-#z_in[0,557] = 1000
-z_in[0,881] = 1000
-log_gabor_coeffs_rec_test, mu, z = autoenc_VAE( autoenc_inputs, z_in=z_in )   
-inv_LGmap_input = log_gabor_coeffs_rec_test.view((n_levels-1) * n_color, n_eccentricity * n_azimuth * n_theta * n_phase)
-img_rec_rec_test = invLGmap(inv_LGmap_input) #inv_LGmap_input)
-img_rec_rec_test = img_rec_rec_test.view(1, n_levels-1, n_color, width, width).detach()
-img_rec_rec_test = torch.cat((img_rec_rec_test, img_res_gray), 1)
-full_img_rec_rec_test = inverse_pyramid(img_rec_rec_test, color=color, gauss=gauss, n_levels=n_levels)
-full_img_rec_rec_test = full_img_rec_rec_test.detach().permute(0,2,3,1).numpy()
-image_show(full_img_rec_rec_test[0,N_X//2-128:N_X//2+128,
-                            N_Y//2-128:N_Y//2+128,:], color_mode)
-
-
-# In[153]:
-
-
-class Theta_shift(nn.Module):
-    """ Encoder
-    """
-    def __init__(self, n_levels, n_color, n_eccentricity, n_azimuth, n_theta, n_phase):
-        super(Theta_shift, self).__init__()
-        self.n_levels = n_levels
-        self.n_color = n_color
-        self.n_eccentricity = n_eccentricity 
-        self.n_azimuth = n_azimuth 
-        self.n_theta = n_theta
-        self.n_phase = n_phase
-            
-    def forward(self, x, theta): 
-        x_int = x[:,:,:,:2,...] #eccentricity 
-        x_ext = x[:,:,:,2:,...]
-        x_list = []
-        for x in (x_int, x_ext):
-            x = x.permute(0, 2, 5, 6, 1, 3, 4).contiguous()
-            x = x.view(-1, self.n_color*self.n_theta*self.n_phase, 
-                       self.n_levels * self.n_eccentricity//2, self.n_azimuth)
-            grid = F.affine_grid(theta, x.size())
-            x = F.grid_sample(x, grid)
-            x = x.view(-1, self.n_color,self.n_theta,self.n_phase, 
-                       self.n_levels, self.n_eccentricity//2, self.n_azimuth)
-            x = x.permute(0, 4, 1, 5, 6, 2, 3).contiguous()
-            x_list.append(x)
-        x = torch.cat(x_list, 3)
-        #print(x.shape)
-        
-        return x, grid
-
-
-# In[154]:
-
-
-theta_in = torch.zeros(1,2,3)
-theta_in[0,0,0] = 1
-theta_in[0,1,1] = 1
-theta_in[:,0,2] = -0.1
-theta_in[:,1,2] = 0.1
-
-autoenc_inputs = log_gabor_coeffs[:,:n_levels-1,...].clone()
-f_shift = Theta_shift(n_levels-1, n_color, n_eccentricity, n_azimuth, n_theta, n_phase)
-x_shift, grid = f_shift(autoenc_inputs, theta_in)
-
-
-# In[155]:
-
-
-theta_in
-
-
-# In[156]:
-
-
-grid.shape
-
-
-# In[157]:
-
-
-plt.figure(figsize=(15,5))
-plt.plot(autoenc_inputs.detach().numpy().flatten()[:1000])
-plt.plot(x_shift.detach().numpy().flatten()[:1000])
-
-
-# In[158]:
-
-
-print('x_shift shape=', x_shift.shape)
-
-#img_rec_rec = invLGmap(inv_LGmap_input) #inv_LGmap_input)
-#img_rec_rec = img_rec_rec.view(1, n_levels-1, n_color, width, width).detach()
-#img_rec_rec = torch.cat((img_rec_rec, img_crop[0:,-1:,...]), 1)
-
-K_ = K.reshape((width**2, n_sublevel*n_azimuth*n_theta*n_phase))
-print('Reshaped filter tensor=', K_.shape)
-rcond=0.1
-if rcond>0:
-    K_inv_test = torch.pinverse(K_, rcond=rcond) 
-else:
-    K_inv_test = torch.pinverse(K_)
-print('Tensor shape=', K_inv.shape)
-K_inv_test =K_inv_test.reshape(n_eccentricity, n_azimuth, n_theta, n_phase, width, width)
-img_rcond_test = inverse_gabor(x_shift.detach(), K_inv_test)
-
-#img_rcond_test[:,-1,...] = img_crop[:,-1,...]
-img_rcond_test = torch.cat((img_rcond_test, img_crop[0:,-1:,...]), 1)
-
-full_img_rec_rec = inverse_pyramid(img_rcond_test, color=color, gauss=gauss, n_levels=n_levels)
-full_img_rec_rec = full_img_rec_rec.detach().permute(0,2,3,1).numpy()
-#ax = tensor_image_cmp(full_img_rec, full_img_rec_rec)
-
-if color_mode == 'rgb':
-    full_img_rec_rec = full_img_rec_rec.clip(0,255).astype('uint8')
-#ax = tensor_image_cmp(full_img_rec, full_img_rec_rec)
-plt.figure(figsize=(20,15))
-image_show(full_img_rec_rec[0,:], color_mode)
-plt.title('ROTATION/ZOOM FROM COMPRESSED SENSING LAYER')
-
-plt.figure(figsize=(20,15))
-image_show(full_img_crop[0,:], color_mode)
-plt.title('ROTATION/ZOOM FROM COMPRESSED SENSING LAYER')
-
-
-# In[159]:
-
-
-plt.figure(figsize=(15,8))
-plt.plot(z_sample.flatten())
-plt.plot(z.detach().flatten())
-torch.std(z_sample.flatten()), torch.std(z.detach().flatten())
+plt.plot(data['img_crop'].flatten())
 
 
 # In[ ]:
 
 
-N_X
+with torch.no_grad():
+    z_sample = []
+    for step, data in enumerate(dataloader):
+        #print(step)
+        log_gabor_coefs = log_gabor_transform(data['img_crop'], K)
+        autoenc_inputs = log_gabor_coefs.clone()
+        # Normalizing
+        if color_mode == 'rgb':
+            autoenc_inputs /=  256 # !! Normalization
+        out_coeffs, z = autoenc(autoenc_inputs[:,:n_levels-1,...])
+        z_sample.extend(list(z[2].detach().numpy()))
 
 
 # In[ ]:
 
 
-N_Y
+np.array(z_sample).shape
+
+
+# In[ ]:
+
+
+ylim = 64
+plt.figure(figsize=(12,ylim // 5))
+plt.violinplot(np.array(z_sample)[:,:ylim,0,0], vert=False)
+plt.plot(np.array(z_sample)[:,:ylim,0,0].mean(0), np.arange(1, ylim+1),'r.')
+y_max = np.argmax(np.array(z_sample)[:,:ylim,0,0].mean(0))
+y_std_max = np.argmax(np.array(z_sample)[:,:ylim,0,0].std(0))
+plt.ylim(0,ylim+1)
+plt.plot([0,0], [0, ylim+1], 'k:')
+plt.title(str(level)+', max:'+ str(y_max)+', std_max:'+str(y_std_max))
+
+
+# In[ ]:
+
+
+log_gabor_coeffs_rec_test.shape
+
+
+# In[ ]:
+
+
+z_img.shape
+
+
+# In[ ]:
+
+
+plt.figure(figsize=(20,600))
+#plt.figure(figsize=(20,150))
+lat_shift = 0
+for lat_feat in range(lat_shift, lat_shift+64):
+    #plt.subplot(50,2,lat_feat+1-lat_shift)
+    plt.subplot(200,5,lat_feat+1-lat_shift)
+    z_in = torch.zeros_like(z_img)
+    z_in[0,lat_feat,:,:] = 10
+    log_gabor_coeffs_rec_test, z = autoenc(autoenc_inputs[:1,:n_levels-1,...],z_in=z_in)  
+    inv_LGmap_input = log_gabor_coeffs_rec_test.view((n_levels-1) * n_color, n_eccentricity * n_azimuth * n_theta * n_phase)
+    img_rec_rec_test = invLGmap(inv_LGmap_input) #inv_LGmap_input)
+    img_rec_rec_test = img_rec_rec_test.view(n_levels-1, n_color, width, width)
+    img_rec_rec_test = torch.cat((img_rec_rec_test.unsqueeze(0), img_res_gray), 1)
+    full_img_rec_rec_test = inverse_pyramid(img_rec_rec_test, color=color, gauss=gauss, n_levels=n_levels)
+    full_img_rec_rec_test = full_img_rec_rec_test.detach().permute(0,2,3,1).numpy()
+    #.permute(0,2,3,1).detach().numpy().squeeze()
+    #image_show(full_img_rec_rec_test[0,16:48,16:48,:], color_mode=color_mode)
+    image_show(full_img_rec_rec_test.squeeze(), color_mode=color_mode)
+    plt.title(f'{level}, {lat_feat}')
+
+
+# In[ ]:
+
+
+plt.figure(figsize=(20,600))
+#plt.figure(figsize=(20,150))
+lat_shift = 0
+for lat_feat in range(lat_shift, lat_shift+64):
+    #plt.subplot(50,2,lat_feat+1-lat_shift)
+    plt.subplot(200,5,lat_feat+1-lat_shift)
+    z_in = torch.zeros_like(z_img)
+    z_in[0,lat_feat,:,:] = 10
+    log_gabor_coeffs_rec_test, z = autoenc(autoenc_inputs[:1,:n_levels-1,...],z_in=z_in)  
+    inv_LGmap_input = log_gabor_coeffs_rec_test.view((n_levels-1) * n_color, n_eccentricity * n_azimuth * n_theta * n_phase)
+    img_rec_rec_test = invLGmap(inv_LGmap_input) #inv_LGmap_input)
+    img_rec_rec_test = img_rec_rec_test.view(n_levels-1, n_color, width, width)
+    img_rec_rec_test = torch.cat((img_rec_rec_test.unsqueeze(0), img_res_gray), 1)
+    full_img_rec_rec_test = inverse_pyramid(img_rec_rec_test, color=color, gauss=gauss, n_levels=n_levels)
+    full_img_rec_rec_test = full_img_rec_rec_test.detach().permute(0,2,3,1).numpy()
+    #.permute(0,2,3,1).detach().numpy().squeeze()
+    #image_show(full_img_rec_rec_test[0,16:48,16:48,:], color_mode=color_mode)
+    image_show(full_img_rec_rec_test[:,768//2-32:768//2+32,1024//2-32:1024//2+32,:].squeeze(), color_mode=color_mode)
+    plt.title(f'{level}, {lat_feat}')
+
+
+# In[ ]:
+
+
+z[0].shape, z_in.shape
+
+
+# In[ ]:
+
+
+plt.figure(figsize=(20,600))
+#plt.figure(figsize=(20,150))
+lat_shift = 0
+for exc in range(5): #64):
+    #plt.subplot(50,2,lat_feat+1-lat_shift)
+    plt.subplot(1,5,exc+1)
+    z_in = torch.zeros_like(z_img)
+    z_in[0,lat_feat,exc,0] = 10
+    log_gabor_coeffs_rec_test, z = autoenc(autoenc_inputs[:1,:n_levels-1,...],z_in=z_in)  
+    inv_LGmap_input = log_gabor_coeffs_rec_test.view((n_levels-1) * n_color, n_eccentricity * n_azimuth * n_theta * n_phase)
+    img_rec_rec_test = invLGmap(inv_LGmap_input) #inv_LGmap_input)
+    img_rec_rec_test = img_rec_rec_test.view(n_levels-1, n_color, width, width)
+    img_rec_rec_test = torch.cat((img_rec_rec_test.unsqueeze(0), img_res_gray), 1)
+    full_img_rec_rec_test = inverse_pyramid(img_rec_rec_test, color=color, gauss=gauss, n_levels=n_levels)
+    full_img_rec_rec_test = full_img_rec_rec_test.detach().permute(0,2,3,1).numpy()
+    #.permute(0,2,3,1).detach().numpy().squeeze()
+    #image_show(full_img_rec_rec_test[0,16:48,16:48,:], color_mode=color_mode)
+    #image_show(full_img_rec_rec_test[:,768//2-32:768//2,1024//2:1024//2+32,:].squeeze(), color_mode=color_mode)
+    image_show(full_img_rec_rec_test[:,768//2-128:768//2+128,1024//2-128:1024//2+128,:].squeeze(), color_mode=color_mode)
+    #image_show(full_img_rec_rec_test.squeeze(), color_mode=color_mode)
+    #image_show(full_img_rec_rec_test.squeeze(), color_mode=color_mode)
+    plt.title(f'{exc}, {lat_feat}')
+    c = (127.5,127.5)
+    plt.plot(c[0],c[1],'+r')
+    plt.plot((c[0],c[0]), (0.5, 127.5),':r')
+    plt.plot((0.5, 127.5), (c[1],c[1]), ':r')
+    for side in (32,64,128,256):
+        axe = np.linspace(-np.pi, np.pi, side//2)
+        r = side/2
+        x_val = r * np.sin(axe)
+        y_val = r * np.cos(axe)
+        plt.plot(c[0]+x_val, c[1]+y_val,'r.',markersize=1)
+        '''plt.plot((c[0]-side/2, c[0]+side/2),(c[1]-side/2, c[1]-side/2),'r:')
+        plt.plot((c[0]-side/2, c[0]+side/2),(c[1]+side/2, c[1]+side/2),'r:')
+        plt.plot((c[0]-side/2, c[0]-side/2),(c[1]-side/2, c[1]+side/2),'r:')
+        plt.plot((c[0]+side/2, c[0]+side/2),(c[1]-side/2, c[1]+side/2),'r:')'''
+    #plt.plot([0.5, 62.5],[31.5, 31.5],':r')
+    #plt.plot([31.5, 31.5],[0.5, 62.5],':r')
+
+
+# In[ ]:
+
+
+plt.figure(figsize=(20,600))
+#plt.figure(figsize=(20,150))
+lat_shift = 0
+for lat_feat in range(lat_shift, lat_shift+64):
+    #plt.subplot(50,2,lat_feat+1-lat_shift)
+    plt.subplot(200,5,lat_feat+1-lat_shift)
+    z_in = torch.zeros_like(z_img)
+    z_in[0,lat_feat,3,0] = 10
+    log_gabor_coeffs_rec_test, z = autoenc(autoenc_inputs[:1,:n_levels-1,...],z_in=z_in)  
+    inv_LGmap_input = log_gabor_coeffs_rec_test.view((n_levels-1) * n_color, n_eccentricity * n_azimuth * n_theta * n_phase)
+    img_rec_rec_test = invLGmap(inv_LGmap_input) #inv_LGmap_input)
+    img_rec_rec_test = img_rec_rec_test.view(n_levels-1, n_color, width, width)
+    img_rec_rec_test = torch.cat((img_rec_rec_test.unsqueeze(0), img_res_gray), 1)
+    full_img_rec_rec_test = inverse_pyramid(img_rec_rec_test, color=color, gauss=gauss, n_levels=n_levels)
+    full_img_rec_rec_test = full_img_rec_rec_test.detach().permute(0,2,3,1).numpy()
+    #.permute(0,2,3,1).detach().numpy().squeeze()
+    #image_show(full_img_rec_rec_test[0,16:48,16:48,:], color_mode=color_mode)
+    #image_show(full_img_rec_rec_test[:,768//2-32:768//2,1024//2:1024//2+32,:].squeeze(), color_mode=color_mode)
+    image_show(full_img_rec_rec_test[:,768//2-128:768//2+128,1024//2-128:1024//2+128,:].squeeze(), color_mode=color_mode)
+    #image_show(full_img_rec_rec_test.squeeze(), color_mode=color_mode)
+    #image_show(full_img_rec_rec_test.squeeze(), color_mode=color_mode)
+    plt.title(f'{level}, {lat_feat}')
+    c = (127.5,127.5)
+    plt.plot(c[0],c[1],'+r')
+    #plt.plot((c[0],c[0]), (0.5, 255.5),':r')
+    #plt.plot((0.5, 255.5), (c[1],c[1]), ':r')
+    '''for side in (32,64,128,256):
+        axe = np.linspace(-np.pi, np.pi, side//2)
+        r = side/2
+        x_val = r * np.sin(axe)
+        y_val = r * np.cos(axe)
+        plt.plot(c[0]+x_val, c[1]+y_val,'r.',markersize=1)
+        plt.plot((c[0]-side/2, c[0]+side/2),(c[1]-side/2, c[1]-side/2),'r:')
+        plt.plot((c[0]-side/2, c[0]+side/2),(c[1]+side/2, c[1]+side/2),'r:')
+        plt.plot((c[0]-side/2, c[0]-side/2),(c[1]-side/2, c[1]+side/2),'r:')
+        plt.plot((c[0]+side/2, c[0]+side/2),(c[1]-side/2, c[1]+side/2),'r:')'''
+    #plt.plot([0.5, 62.5],[31.5, 31.5],':r')
+    #plt.plot([31.5, 31.5],[0.5, 62.5],':r')
+
+
+# In[ ]:
+
+
+plt.figure(figsize=(20,600))
+#plt.figure(figsize=(20,150))
+lat_shift = 0
+for lat_feat in range(lat_shift, lat_shift+64):
+    #plt.subplot(50,2,lat_feat+1-lat_shift)
+    plt.subplot(200,5,lat_feat+1-lat_shift)
+    z_in = torch.zeros_like(z_img)
+    z_in[0,lat_feat,3,:] = 10
+    log_gabor_coeffs_rec_test, z = autoenc(autoenc_inputs[:1,:n_levels-1,...],z_in=z_in)  
+    inv_LGmap_input = log_gabor_coeffs_rec_test.view((n_levels-1) * n_color, n_eccentricity * n_azimuth * n_theta * n_phase)
+    img_rec_rec_test = invLGmap(inv_LGmap_input) #inv_LGmap_input)
+    img_rec_rec_test = img_rec_rec_test.view(n_levels-1, n_color, width, width)
+    img_rec_rec_test = torch.cat((img_rec_rec_test.unsqueeze(0), img_res_gray), 1)
+    full_img_rec_rec_test = inverse_pyramid(img_rec_rec_test, color=color, gauss=gauss, n_levels=n_levels)
+    full_img_rec_rec_test = full_img_rec_rec_test.detach().permute(0,2,3,1).numpy()
+    #.permute(0,2,3,1).detach().numpy().squeeze()
+    #image_show(full_img_rec_rec_test[0,16:48,16:48,:], color_mode=color_mode)
+    image_show(full_img_rec_rec_test[:,768//2-32:768//2,1024//2:1024//2+32,:].squeeze(), color_mode=color_mode)
+    image_show(full_img_rec_rec_test[:,768//2-128:768//2+128,1024//2-128:1024//2+128,:].squeeze(), color_mode=color_mode)
+    #image_show(full_img_rec_rec_test.squeeze(), color_mode=color_mode)
+    plt.title(f'{level}, {lat_feat}')
+    c = (127.5,127.5)
+    plt.plot(c[0],c[1],'+r')
+    for side in (32,64,128,256):
+        axe = np.linspace(-np.pi, np.pi, side//2)
+        r = side/2
+        x_val = r * np.sin(axe)
+        y_val = r * np.cos(axe)
+        plt.plot(c[0]+x_val, c[1]+y_val,'r.',markersize=1)
+    #plt.plot([0.5, 62.5],[31.5, 31.5],':r')
+    #plt.plot([31.5, 31.5],[0.5, 62.5],':r')
+
+
+# In[ ]:
+
+
+full_img_rec_rec_test.shape
+
+
+# In[ ]:
+
+
+
 
 
 # In[ ]:

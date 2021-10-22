@@ -415,7 +415,8 @@ def get_K(width=width,
             for i_theta in range(n_theta):
                 for i_phase in range(n_phase):
                     if phase_shift:
-                        azimuth = (i_azimuth+((i_sublevel+i_phase)%2)/2)*2*np.pi/n_azimuth
+                        #azimuth = (i_azimuth+((i_sublevel+i_phase)%2)/2)*2*np.pi/n_azimuth
+                        azimuth = i_azimuth*2*np.pi/n_azimuth                        
                     else:
                         azimuth = (i_azimuth+(i_sublevel%2)/2)*2*np.pi/n_azimuth
                     K[..., 
